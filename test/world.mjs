@@ -243,6 +243,164 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- through the brambles, and the whole loop -----------------------------
+{
+  const { context, page } = await fresh();
+  const loop = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.owned = []; pr.story.glade = null; pr.story.flock = []; pr.story.flags = [];
+    d.resetWorld(); d.enterLand('glade');
+
+    // Shut, the east edge is a wall.
+    d.land().opened = false;
+    d.holdAt(d.W, 240);
+    for (let i = 0; i < 200; i++) d.tick();
+    const shutMode = d.G.mode, shutX = Math.round(d.bird.x);
+
+    // Open, it is a door.
+    d.land().opened = true;
+    for (let i = 0; i < 200 && d.G.mode === 'explore'; i++) d.tick();
+    d.letGo();
+    const opened = d.G.mode;
+
+    // Fly the level. Held at the gap centre it can be flown honestly.
+    const flyStage = () => {
+      let guard = 0;
+      while (!d.stage().won && guard++ < 20000) {
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+        d.bird.vy = 0;
+        d.tick();
+      }
+      return d.stage().won;
+    };
+    const won = flyStage();
+    const scoreAtWin = d.G.score, target = d.stage().target;
+
+    // Arriving is safe: driven into the ground, he survives.
+    for (let i = 0; i < 200; i++) { d.bird.y = d.GY; d.bird.vy = 20; d.tick(); }
+    const stillAlive = d.G.state !== d.states.OVER && d.G.state !== d.states.DYING;
+    const done = d.stage().done;
+
+    // Home again, into the glade that was waiting.
+    d.press();
+    const home = { mode: d.G.mode, opened: d.land().opened };
+
+    return { shutMode, shutX, opened, won, scoreAtWin, target, stillAlive, done, home,
+             owned: pr.owned.slice(), flock: pr.story.flock.slice() };
+  });
+  check('shut brambles keep him in the glade',
+    loop.shutMode === 'explore' && loop.shutX < 288, JSON.stringify({ m: loop.shutMode, x: loop.shutX }));
+  check('open brambles let him through to the pipe-land', loop.opened === 'stage', loop.opened);
+  check('the level is won by arriving at its far end',
+    loop.won && loop.scoreAtWin >= loop.target, loop.scoreAtWin + ' / ' + loop.target);
+  check('and arriving is safe — the ground cannot take it back',
+    loop.stillAlive && loop.done, JSON.stringify({ alive: loop.stillAlive, done: loop.done }));
+  check('Bluebird joins the flock', loop.flock.join() === 'sky' && loop.owned.join() === 'bird:sky',
+    JSON.stringify({ owned: loop.owned, flock: loop.flock }));
+  check('and a tap takes him back to the glade, still open',
+    loop.home.mode === 'explore' && loop.home.opened === true, JSON.stringify(loop.home));
+  await context.close();
+}
+
+// --- dying in a level costs the attempt and nothing else ------------------
+{
+  const { context, page } = await fresh();
+  const retry = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.coins = 500; pr.xp = 1234; pr.story.glade = { got: [true, true, true], talked: 1, opened: true };
+    d.resetWorld(); d.enterLand('glade');
+    const gladeBefore = JSON.stringify(d.land().got) + d.land().opened;
+    d.enterStage(d.STAGES.reeds);
+    const before = { coins: pr.coins, xp: pr.xp, games: pr.stats.games };
+
+    // Fly a few pipes, then into the ground.
+    for (let i = 0; i < 600 && d.G.score < 3; i++) {
+      if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+      d.bird.vy = 0; d.tick();
+    }
+    d.bird.y = d.GY; d.bird.vy = 25;
+    for (let i = 0; i < 300 && d.G.score > 0; i++) d.tick();
+
+    const after = { coins: pr.coins, xp: pr.xp, games: pr.stats.games };
+    // Back at the start of the same level, not on a game-over screen.
+    const restarted = d.G.mode === 'stage' && d.G.score === 0 && d.G.state === d.states.PLAYING;
+    d.resetWorld(); d.enterLand('glade');
+    const gladeAfter = JSON.stringify(d.land().got) + d.land().opened;
+    return { before, after, restarted, gladeBefore, gladeAfter };
+  });
+  check('dying in a level restarts it rather than ending a run',
+    retry.restarted, JSON.stringify(retry.restarted));
+  check('and costs nothing — coins, XP and games are untouched',
+    retry.before.coins === retry.after.coins && retry.before.xp === retry.after.xp &&
+    retry.before.games === retry.after.games, JSON.stringify(retry));
+  check('the glade is exactly where it was left',
+    retry.gladeBefore === retry.gladeAfter, retry.gladeBefore + ' vs ' + retry.gladeAfter);
+  await context.close();
+}
+
+// --- rescuing twice does not hand out two birds --------------------------
+{
+  const { context, page } = await fresh();
+  const twice = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.owned = []; pr.story.flock = []; pr.story.flags = [];
+    const clear = () => {
+      d.resetWorld(); d.enterStage(d.STAGES.reeds);
+      let guard = 0;
+      while (!d.stage().won && guard++ < 20000) {
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+        d.bird.vy = 0; d.tick();
+      }
+    };
+    clear(); const first = pr.owned.slice();
+    clear(); const second = pr.owned.slice();
+    return { first, second, flock: pr.story.flock.slice(),
+             flags: pr.story.flags.slice() };
+  });
+  check('clearing a level twice adds exactly one bird',
+    twice.first.length === 1 && twice.second.length === 1 &&
+    twice.flock.length === 1 && twice.flags.length === 1, JSON.stringify(twice));
+  await context.close();
+}
+
+// --- a level does not disturb how the world is generated -----------------
+{
+  const { context, page } = await fresh();
+  const seedSafe = await page.evaluate(() => {
+    const d = __dreybird;
+    const run = () => {
+      d.resetWorld(); d.startPlay(90210);
+      const seq = [];
+      let guard = 0;
+      while (d.G.pipeIndex < 24 && guard++ < 24000) {
+        d.G.state = d.states.PLAYING;
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+        d.bird.vy = 0;
+        const before = d.G.pipeIndex;
+        d.tick();
+        if (d.G.pipeIndex > before) {
+          const q = d.pipes[d.pipes.length - 1];
+          seq.push([q.gap, q.h, q.amp]);
+        }
+      }
+      return JSON.stringify(seq);
+    };
+    const clean = run();
+    // A whole level in between, hazard knob and all.
+    d.resetWorld(); d.enterStage(d.STAGES.reeds);
+    for (let i = 0; i < 400; i++) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+    d.resetWorld();
+    const after = run();
+    return { same: clean === after, hazardMul: d.G.hazardMul, n: clean.length };
+  });
+  check('free mode still builds the same world after a level',
+    seedSafe.same && seedSafe.n > 10, 'hazardMul back to ' + seedSafe.hazardMul);
+  await context.close();
+}
+
 // --- screenshot: the longest line he has ----------------------------------
 {
   mkdirSync(HERE + 'shots', { recursive: true });

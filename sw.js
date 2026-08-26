@@ -1,7 +1,7 @@
 /* DreyBird service worker — hand-rolled, no dependencies.
    Bump CACHE to ship an update; the old cache is dropped on activate. */
 
-const CACHE = 'dbw-v2';   // bumped when the app shell changes
+const CACHE = 'dbw-v3';   // bumped when the app shell changes
 const RUNTIME = 'dbw-runtime-v1';
 
 const SHELL = [

@@ -892,6 +892,7 @@
       taught: false,         // has this player finished a run yet?
       best: 0,
       created: Date.now(),
+      story: { at: 'glade', flags: [], flock: [], glade: null },
       stats: { games: 0, pipes: 0, longest: 0, powers: 0, roosts: 0,
                bronze: 0, silver: 0, gold: 0, platinum: 0, recent: [] }
     };
@@ -922,6 +923,22 @@
       taught: p.taught === true,
       best: num(p.best, 0),
       created: num(p.created, d.created),
+      /* Lists, not totals. The import merge below unions them; taking
+         Math.max of two arrays is NaN, which is the trap stats.recent already
+         caught and which would wipe out every number sitting beside it. */
+      story: {
+        at: typeof (p.story || {}).at === 'string' ? p.story.at : 'glade',
+        flags: Array.isArray((p.story || {}).flags)
+          ? p.story.flags.filter(x => typeof x === 'string') : [],
+        flock: Array.isArray((p.story || {}).flock)
+          ? p.story.flock.filter(x => typeof x === 'string') : [],
+        glade: (p.story || {}).glade && typeof p.story.glade === 'object'
+          ? { got: Array.isArray(p.story.glade.got)
+                ? p.story.glade.got.slice(0, 3).map(Boolean) : [false, false, false],
+              talked: num(p.story.glade.talked, 0),
+              opened: p.story.glade.opened === true }
+          : null
+      },
       stats: {
         games: num(st.games, 0), pipes: num(st.pipes, 0), longest: num(st.longest, 0),
         powers: num(st.powers, 0), roosts: num(st.roosts, 0),
@@ -979,6 +996,10 @@
      including the downside ones. */
   function earn(n) {
     if (!profile || n <= 0) return;
+    /* Levels pay nothing. A level restarts the instant you die, so paying per
+       pipe would make the first three pipes of the easiest one a coin press
+       -- and "retrying costs nothing" has to be true in both directions. */
+    if (G.mode === 'stage') return;
     G.coinFrac += n * G.coinMul;
     // Twenty pipes at 0.9 accumulates to 17.999999999999996, which floors
     // to 17 and quietly loses a coin. The epsilon costs nothing and keeps
@@ -1314,6 +1335,16 @@
   };
   const SEED_R = 9;
 
+  /* A pipe-land is a table row and nothing else, because world generation is
+     already a pure function of the seed. No level format and no authored
+     geometry — and the same flight every attempt, so a retry is learning a
+     level rather than rerolling one. */
+  const STAGES = {
+    reeds: { id: 'reeds', name: 'THE REEDS', seed: 0x7ee05, pipes: 16,
+             gap: 122, hazards: 0, bg: 0, back: 'glade', finds: 'sky' }
+  };
+  const ARRIVE_GLIDE = 80;      // ticks of flying on before the panel
+
   const ROOST_PHASE = { sky0: '#1a0b3d', sky1: '#4a2378', cloud: '#6b3fa0',
                         city: '#150835', dirt: '#2a1550', grass: '#7f5ce0',
                         sun: '#ffe9ff', star: 1 };
@@ -1573,6 +1604,8 @@
        sub-modes inside PLAYING, the shape G.roost already proved safe. */
     mode: 'free',               // 'free' | 'explore' | 'stage'
     explore: null,              // the land you are in, while you are in one
+    stage: null,                // the pipe-land you are in, while you are in one
+    hazardMul: 1,               // stages turn the hazard ramp down; free mode never does
     portalAt: null,             // pipe index of this run's portal, if any
     portalPipe: null,           // the live portal pipe, while one is on screen
     forcePortalAt: -1,          // test hook only; -1 leaves placement to the seed
@@ -1645,14 +1678,23 @@
     G.patStep = 0;
     G.gust = null;
     G.fog = null;
+    /* A level turns the hazard ramp down and moves the bird off its fixed x.
+       Neither belongs to the endless game, and leaving either behind means
+       quitting a level silently hands free mode a world with no hazards in
+       it -- which is exactly what happened until a check caught it. */
+    G.hazardMul = 1;
+    G.stage = null;
+    if (G.mode === 'explore') leaveLand();
+    else if (G.mode === 'stage') {
+      G.mode = 'free';
+      bird.x = BIRD_X; bird.px = BIRD_X; bird.vx = 0;
+    }
     // Belt and braces with startPlay, and load-bearing: quitting from the
     // pause sheet mid-Roost comes through here rather than through a run.
     G.portalAt = null;
     G.portalPipe = null;
     G.roost = null;
     roostCoins.length = 0;
-    // Leaving a land restores the fixed-x bird the rest of the game assumes.
-    if (G.mode === 'explore') leaveLand();
     G.state = READY;
     syncStage();
   }
@@ -1715,7 +1757,11 @@
     const h = Math.max(GAP_FLOOR, Math.round(G.gap * (G.pattern.gapMul || 1)));
 
     // A mover swings, so its gap must stay reachable at both extremes.
-    const chance = clamp((idx - HAZARD_START) * 0.022, 0, HAZARD_MAX) * (G.runAssist ? 0.5 : 1);
+    /* Multiplied rather than skipped: the roll above still happens, so
+       spawnPipe's ten draws stay exactly ten and a seed keeps meaning what
+       it means whichever mode is asking. */
+    const chance = clamp((idx - HAZARD_START) * 0.022, 0, HAZARD_MAX) *
+                   (G.runAssist ? 0.5 : 1) * G.hazardMul;
     const hazard = rHaz < chance ? (rKindH < 0.42 ? 'mover' : rKindH < 0.74 ? 'gust' : 'fog') : null;
     const amp = hazard === 'mover' ? Math.round(10 + rAmp * MOVE_AMP) : 0;
 
@@ -1854,6 +1900,10 @@
   }
 
   function land() {
+    /* A stage is not a run to be scored: it is a level to be beaten. Dying in
+       one costs the attempt and nothing else -- the glade behind it, the coins
+       and the XP are all exactly as they were. */
+    if (G.mode === 'stage' && !G.stage.won) { retryStage(); return; }
     G.state = OVER;
     G.overAt = G.ticks;
     // An assist run is played on gentler physics, so it is not the same
@@ -2034,7 +2084,11 @@
     // which is the whole difference between here and a pipe-land.
     const hw = G.hitW / 2, hh = G.hitH / 2;
     if (bird.x < hw + 2) { bird.x = hw + 2; bird.vx = Math.max(bird.vx, 0); }
-    if (bird.x > W - hw - 2) { bird.x = W - hw - 2; bird.vx = Math.min(bird.vx, 0); }
+    if (bird.x > W - hw - 2) {
+      // Open brambles make the east edge a door rather than a wall.
+      if (E.opened && GLADE.gate.x) { enterStage(STAGES.reeds); return; }
+      bird.x = W - hw - 2; bird.vx = Math.min(bird.vx, 0);
+    }
     if (bird.y < hh + 2) { bird.y = hh + 2; bird.vy = Math.max(bird.vy, 0); }
     if (bird.y > GY - hh) { bird.y = GY - hh; bird.vy = Math.min(bird.vy, 0); }
 
@@ -2044,6 +2098,7 @@
       if (Math.abs(sd.x - bird.x) < SEED_R + G.hitW / 2 &&
           Math.abs(sd.y - bird.y) < SEED_R + G.hitH / 2) {
         E.got[i] = true;
+        keepGlade();
         audio.score();
         puff(sd.x, sd.y, '#ffe07a', 8);
       }
@@ -2051,6 +2106,14 @@
 
     const target = clamp(bird.vy * 0.10, -0.45, 0.9);
     bird.rot += (target - bird.rot) * 0.16;
+  }
+
+  // The errand is progress, so it outlives the tab.
+  function keepGlade() {
+    if (!profile || !G.explore) return;
+    profile.story.glade = { got: G.explore.got.slice(),
+                            talked: G.explore.talked, opened: G.explore.opened };
+    saveProfile();
   }
 
   const gotAll = E => E.got.every(Boolean);
@@ -2086,6 +2149,7 @@
     // The end of the thanks speech is the moment the brambles come apart.
     if (E.saying === THISTLE.thanks && !E.opened) {
       E.opened = true;
+      keepGlade();
       G.flash = reduceMotion ? 0 : 0.6;
       audio.power();
     }
@@ -2104,10 +2168,98 @@
     after:  ['Straight on east, and good luck to you.']
   };
 
+  /* A pipe-land. G.explore is deliberately left alive and inactive: the glade
+     has to be waiting exactly as it was when he comes back -- seeds gathered,
+     brambles open, Thistle where he stood -- which is the same
+     suspend-rather-than-save shape the Roost uses. */
+  function enterStage(st) {
+    G.mode = 'stage';
+    G.stage = { id: st.id, target: st.pipes, won: false, wonAt: 0, done: false };
+    bird.x = BIRD_X; bird.px = BIRD_X;
+    bird.vx = 0;
+    bird.y = 240; bird.py = 240; bird.vy = 0;
+    bird.rot = 0; bird.prot = 0;
+    /* startPlay deliberately leaves these alone: in the endless game
+       resetWorld has always run first and cleared them. A level does not go
+       that way round, so without this a retry began with the score from the
+       attempt that just failed -- three pipes in hand, and a level winnable
+       before reaching its end. */
+    G.score = 0; G.newBest = false;
+    G.shield = 0; G.slow = 0; G.invuln = 0; G.hitStop = 0;
+    G.flash = 0; G.shake = 0;
+    G.hazardMul = st.hazards;
+    startPlay(st.seed);
+    /* Pinned, not drifting. The day/night cycle rides G.cycle, which
+       deliberately survives between runs -- so without this the same level
+       is dusk on one attempt and midnight on the next, and "the same flight
+       every time" stops being true of the part you actually look at. */
+    G.bg = st.bg;
+    // startPlay fixes the run's physics from the bird's traits; the stage's
+    // own gap is applied after, so a level is as wide as it was designed.
+    G.gap = st.gap;
+    G.flash = reduceMotion ? 0 : 0.5;
+  }
+
+  function stageNow() { return G.stage ? STAGES[G.stage.id] : null; }
+
+  /* Arriving. Not "you survived longest" -- you got there. Spawning stops,
+     death switches off, and he glides on for a beat before the panel, because
+     dying after clearing a stage would be a joke at the player's expense. */
+  function winStage() {
+    const S = G.stage;
+    if (!S || S.won) return;
+    S.won = true;
+    S.wonAt = G.ticks;
+    G.flash = reduceMotion ? 0 : 0.8;
+    audio.power();
+
+    const st = stageNow();
+    if (st && st.finds && profile) {
+      const bird_ = SKINS.find(b => b.id === st.finds);
+      const key = bird_ && keyOf(bird_);
+      if (key && profile.owned.indexOf(key) < 0) {
+        profile.owned.push(key);
+        S.found = st.finds;
+      }
+      const flock = profile.story.flock;
+      if (flock.indexOf(st.finds) < 0) flock.push(st.finds);
+      if (profile.story.flags.indexOf('cleared:' + st.id) < 0) {
+        profile.story.flags.push('cleared:' + st.id);
+      }
+      saveProfile();
+    }
+  }
+
+  // Dying in a stage costs the retry and nothing else: the glade behind it is
+  // untouched, and so are coins, XP and everything already gathered.
+  function retryStage() {
+    const st = stageNow();
+    if (st) enterStage(st);
+  }
+
+  function leaveStage() {
+    const st = stageNow();
+    G.stage = null;
+    G.hazardMul = 1;
+    G.mode = 'explore';
+    // Back into the land that was waiting, at the west side, facing in.
+    bird.x = 40; bird.px = 40;
+    bird.y = 240; bird.py = 240;
+    bird.vx = 0; bird.vy = 0;
+    bird.rot = 0; bird.prot = 0;
+    G.state = PLAYING;
+    void st;
+    syncStage();
+  }
+
   function enterLand(id) {
     G.mode = 'explore';
-    G.explore = { id: id, t: 0, got: [false, false, false], talked: 0,
-                  opened: false, saying: null, line: 0 };
+    const kept = (profile && profile.story.glade) || null;
+    G.explore = { id: id, t: 0,
+                  got: kept ? kept.got.slice() : [false, false, false],
+                  talked: kept ? kept.talked : 0,
+                  opened: kept ? kept.opened : false,
+                  saying: null, line: 0 };
     G.state = PLAYING;
     bird.x = 70; bird.px = 70;
     bird.y = 240; bird.py = 240;
@@ -2193,7 +2345,10 @@
       }
       while (powers.length && powers[0].x + PU_R < -10) powers.shift();
       const last = pipes[pipes.length - 1];
-      if (!last || last.x < W + 40 + SPACING) spawnPipe((last ? last.x : W) + SPACING);
+      const arrived = G.mode === 'stage' && G.stage.won;
+      if (!arrived && (!last || last.x < W + 40 + SPACING)) {
+        spawnPipe((last ? last.x : W) + SPACING);
+      }
 
       // Score: the pipe's centre line passes the bird.
       for (const p of pipes) {
@@ -2202,6 +2357,7 @@
           G.score++;
           if (profile) profile.stats.pipes++;
           earn(COIN_PIPE);
+          if (G.mode === 'stage' && G.score >= G.stage.target) winStage();
           puff(p.x + PIPE_W / 2, bird.y, '#ffe9a8', 5);
           audio.score();
         }
@@ -2236,9 +2392,15 @@
       if (G.invuln > 0) G.invuln--;
 
       // Collisions.
-      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; die(false); }
+      if (G.mode === 'stage' && G.stage.won) {
+        // Arrived: the edges hold him, exactly as a land's do.
+        if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; bird.vy = Math.min(bird.vy, 0); }
+        if (bird.y - G.hitH / 2 < 0) { bird.y = G.hitH / 2; bird.vy = 0; }
+        if (G.ticks - G.stage.wonAt > ARRIVE_GLIDE) G.stage.done = true;
+      }
+      else if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; die(false); }
       else if (bird.y - G.hitH / 2 < 0) { bird.y = G.hitH / 2; bird.vy = 0; }
-      else if (G.invuln === 0) {
+      else if (G.invuln === 0 && !(G.mode === 'stage' && G.stage.won)) {
         for (const p of pipes) {
           if (hitsPipe(p)) {
             if (G.shield > 0) {
@@ -2731,6 +2893,43 @@
     }
   }
 
+  /* Arriving somewhere, which this game has never been able to say before.
+     Drawn over the pipe-land rather than replacing it, so the place he
+     reached is still behind him. */
+  function drawArrived() {
+    const S = G.stage, st = stageNow();
+    if (!S || !S.won) return;
+    const found = S.found && SKINS.find(b => b.id === S.found);
+
+    ctx.save();
+    ctx.globalAlpha = clamp((G.ticks - S.wonAt) / 30, 0, 1) * 0.82;
+    ctx.fillStyle = '#0e120a';
+    ctx.fillRect(0, 96, W, S.done ? 210 : 74);
+    ctx.restore();
+
+    textOut(ctx, 'YOU MADE IT', W / 2, 124, 12, '#ffe07a', '#20160a');
+    textOut(ctx, (st ? st.name : '') + '  ·  ' + S.target + ' PIPES', W / 2, 150, 6,
+      'rgba(255,255,255,.75)', '#20160a');
+
+    if (!S.done) return;
+
+    if (found) {
+      drawBird(ctx, W / 2, 196, 0, found, 0, 1);
+      textOut(ctx, found.name.toUpperCase() + ' IS WITH YOU', W / 2, 232, 8,
+        '#cdefff', '#20160a');
+      for (const [k, ln] of wrapLines(ctx,
+        'One of the flock, found in the reeds. You can fly as ' +
+        found.name + ' from now on.', W - 60, 6).entries()) {
+        textOut(ctx, ln, W / 2, 252 + k * 13, 6, '#f2ead8', '#20160a');
+      }
+    } else {
+      textOut(ctx, 'THE REEDS ARE BEHIND YOU', W / 2, 210, 7, '#cdefff', '#20160a');
+    }
+    if (Math.floor(G.ticks / 26) % 2 === 0) {
+      textOut(ctx, 'TAP TO GO ON', W / 2, 292, 7, '#ffffff', '#20160a');
+    }
+  }
+
   function drawWeather() {
     // The world's weather belongs to the world, not to the room next door.
     if (G.roost || G.mode === 'explore') return;
@@ -2801,15 +3000,22 @@
 
   function drawHud() {
     if ((G.state === PLAYING || G.state === DYING) && G.mode !== 'explore') {
-      textOut(ctx, String(G.score), W / 2, 62, 24, '#ffffff', '#20160a');
+      // In a level the number that matters is how far there is left to go.
+      // Pipes already on screen keep passing after he has arrived; the
+      // count is of the journey, not of them.
+      const label = G.mode === 'stage'
+        ? Math.min(G.score, G.stage.target) + ' / ' + G.stage.target
+        : String(G.score);
+      textOut(ctx, label, W / 2, 62, G.mode === 'stage' ? 14 : 24, '#ffffff', '#20160a');
     }
-    if (G.slow > 0 && G.state === PLAYING && !G.roost) {
+    const arrived = G.mode === 'stage' && G.stage.won;
+    if (G.slow > 0 && G.state === PLAYING && !G.roost && !arrived) {
       const w = 74, x = (W - w) / 2, y = 88;
       ctx.fillStyle = 'rgba(20,16,34,.45)'; ctx.fillRect(x - 1, y - 1, w + 2, 7);
       ctx.fillStyle = '#c9a0ff';            ctx.fillRect(x, y, w * clamp(G.slow / G.puTicks, 0, 1), 5);
       textOut(ctx, 'SLOW-MO', W / 2, y + 15, 6, '#e5d4ff', '#231a3a');
     }
-    if (G.shield && G.state === PLAYING && !G.roost) {
+    if (G.shield && G.state === PLAYING && !G.roost && !arrived) {
       textOut(ctx, G.shield > 1 ? 'SHIELD x' + G.shield : 'SHIELD', W / 2, G.slow > 0 ? 118 : 92, 6, '#cdf0ff', '#123244');
     }
     if (G.roost) {
@@ -2990,6 +3196,7 @@
 
     drawWeather();
     drawHud();
+    if (G.mode === 'stage' && G.stage.won) drawArrived();
     if (G.state === READY) drawReady();
     if (G.state === OVER) drawOver();
 
@@ -3133,6 +3340,8 @@
     // stuck parsing forever — a hang, which is the very thing this screen
     // exists to avoid.
     if (crashed) { setTimeout(() => location.reload(), 0); return; }
+    // The way home from a level he has finished.
+    if (G.mode === 'stage' && G.stage.won && G.stage.done) { leaveStage(); return; }
     if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden ||
         !statsSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
@@ -4056,6 +4265,15 @@
           if (k === 'recent') continue;
           mine.stats[k] = Math.max(mine.stats[k], incoming.stats[k] || 0);
         }
+        // Story lists are unioned, never maxed: a rescue is not a number.
+        for (const f of (incoming.story.flags || [])) {
+          if (mine.story.flags.indexOf(f) < 0) mine.story.flags.push(f);
+        }
+        for (const f of (incoming.story.flock || [])) {
+          if (mine.story.flock.indexOf(f) < 0) mine.story.flock.push(f);
+        }
+        if (!mine.story.glade && incoming.story.glade) mine.story.glade = incoming.story.glade;
+
         /* A run history cannot be merged the way a total can: interleaving
            two of them would invent an order that never happened. Keep the
            one belonging to whoever played more, which is the fuller record. */
@@ -4338,7 +4556,9 @@
       land: () => G.explore,
       // Drives the thumb without a real pointer, for the checks that measure
       // what steering actually does to velocity.
-      GLADE, THISTLE, wrapLines,
+      GLADE, THISTLE, STAGES, wrapLines,
+      enterStage, leaveStage,
+      stage: () => G.stage,
       speechWidth: () => W - 28 - 16,
       tapLand,
       holdAt: (x, y) => { hold.on = true; hold.x = x; hold.y = y; },
