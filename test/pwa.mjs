@@ -88,10 +88,18 @@ const manifestHref = await page.getAttribute('link[rel="manifest"]', 'href');
 check('manifest link is injected at runtime', manifestHref === 'manifest.webmanifest', String(manifestHref));
 
 const mf = await (await context.request.get(ORIGIN + 'manifest.webmanifest')).json();
+/* Installable is a shape, not a particular name: a manifest is not more
+   valid for saying "DreyBird". What does matter is that it has a name at
+   all, and that the name agrees with what the page calls itself — an app
+   installed under one title and running under another is a real defect. */
+const pageTitle = await page.title();
 check('manifest declares an installable app',
-  mf.name === 'DreyBird' && mf.start_url === '.' && mf.scope === '.' &&
+  typeof mf.name === 'string' && mf.name.length > 0 &&
+  mf.start_url === '.' && mf.scope === '.' &&
   mf.display === 'standalone' && mf.orientation === 'portrait' && !!mf.theme_color,
   `${mf.name} · ${mf.display} · start_url=${mf.start_url}`);
+check('and it is installed under the name the game runs under',
+  mf.name === pageTitle, `manifest "${mf.name}" vs title "${pageTitle}"`);
 
 const purposes = mf.icons.map(i => i.purpose);
 check('manifest ships any + maskable icons',

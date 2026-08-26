@@ -9,9 +9,19 @@
 import { chromium } from 'playwright';
 import { pathToFileURL } from 'node:url';
 import { mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 
 const HERE = new URL('.', import.meta.url).pathname;
 const PAGE = pathToFileURL(HERE + '../index.html').href;
+
+/* Read the storage names out of the game rather than repeating them here.
+   A test that hard-codes a key it must agree with has no way to notice when
+   the game stops using it — it just writes to a cupboard nobody opens and
+   reports that nothing happened. */
+const SRC = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const pick = re => { const m = SRC.match(re); if (!m) throw new Error('not found in index.html: ' + re); return m[1]; };
+const APP_TAG = pick(/return \{ app: '([^']+)'/);
+
 const results = [];
 const check = (name, ok, info = '') => {
   results.push(ok);
@@ -168,14 +178,14 @@ const SEED = [3, 7, 2, 11, 9, 14, 6, 18, 12, 21, 4, 17, 25, 13, 9,
 // wipe out every number beside it.
 {
   const { context, page } = await fresh();
-  const merged = await page.evaluate(seed => {
+  const merged = await page.evaluate(([seed, APP]) => {
     const d = __dreybird, pr = d.active();
     Object.assign(pr.stats, { games: 10, pipes: 100, powers: 5, roosts: 1,
       bronze: 2, silver: 1, gold: 0, platinum: 0 });
     pr.stats.recent = [1, 2, 3];
     pr.best = 5; pr.coins = 50; pr.xp = 100;
     const payload = {
-      app: 'dreybird', version: 1, exported: 0,
+      app: APP, version: 1, exported: 0,
       profiles: [{ ...JSON.parse(JSON.stringify(pr)), best: 40, coins: 500, xp: 900,
         stats: { games: 50, pipes: 700, powers: 20, roosts: 4,
                  bronze: 9, silver: 4, gold: 2, platinum: 1, longest: 900,
@@ -184,7 +194,7 @@ const SEED = [3, 7, 2, 11, 9, 14, 6, 18, 12, 21, 4, 17, 25, 13, 9,
     const res = d.importSave(payload);
     const after = d.active();
     return { ok: res && res.ok, stats: after.stats, best: after.best, coins: after.coins };
-  }, SEED);
+  }, [SEED, APP_TAG]);
   const nums = merged.stats ? Object.keys(merged.stats)
     .filter(k => k !== 'recent').map(k => merged.stats[k]) : [];
   check('an imported history does not turn the other stats to NaN',

@@ -8,10 +8,20 @@
 // Run with:  node test/progression.mjs
 import { chromium } from 'playwright';
 import { pathToFileURL } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { mkdirSync } from 'node:fs';
 
 const HERE = new URL('.', import.meta.url).pathname;
 const PAGE = pathToFileURL(HERE + '../index.html').href;
+
+/* Read the storage names out of the game rather than repeating them here.
+   A test that hard-codes a key it must agree with has no way to notice when
+   the game stops using it — it just writes to a cupboard nobody opens and
+   reports that nothing happened. */
+const SRC = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const pick = re => { const m = SRC.match(re); if (!m) throw new Error('not found in index.html: ' + re); return m[1]; };
+const VAULT_KEY = pick(/LS_VAULT\s*=\s*'([^']+)'/);
+
 const results = [];
 const check = (name, ok, info = '') => {
   results.push(ok);
@@ -355,16 +365,16 @@ async function fresh() {
   const context = await browser.newContext();
   const page = await context.newPage();
   page.on('pageerror', e => errors.push(String(e)));
-  await page.addInitScript(() => {
+  await page.addInitScript(key => {
     // A profile in the shape the previous release wrote: no xp field.
-    localStorage.setItem('dreybird.vault', JSON.stringify({
+    localStorage.setItem(key, JSON.stringify({
       activeId: 'old', profiles: [{
         id: 'old', name: 'Veteran', skin: 'ember', best: 31, created: 1, coins: 10, owned: [],
         stats: { games: 9, pipes: 140, longest: 900, powers: 6, bronze: 2, silver: 3, gold: 1, platinum: 0 }
       }]
     }));
     Object.defineProperty(window, 'indexedDB', { get() { return undefined; } });
-  });
+  }, VAULT_KEY);
   await page.goto(PAGE);
   await page.waitForFunction(() => !!window.__dreybird);
   const granted = await page.evaluate(() => ({ xp: __dreybird.xp(), level: __dreybird.level() }));

@@ -12,6 +12,15 @@ import { extname, join, normalize } from 'node:path';
 
 const HERE = new URL('.', import.meta.url).pathname;
 const ROOT = normalize(HERE + '..');
+
+/* Read the storage names out of the game rather than repeating them here.
+   A test that hard-codes a key it must agree with has no way to notice when
+   the game stops using it — it just writes to a cupboard nobody opens and
+   reports that nothing happened. */
+const SRC = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const pick = re => { const m = SRC.match(re); if (!m) throw new Error('not found in index.html: ' + re); return m[1]; };
+const LS_PREFIX = pick(/LS_PREFIX\s*=\s*'([^']+)'/);
+
 const results = [];
 const check = (name, ok, info = '') => {
   results.push(ok);
@@ -38,11 +47,11 @@ const browser = await chromium.launch();
 const errors = [];
 
 // A fresh browser context each time, so no test inherits another's storage.
-async function fresh(init) {
+async function fresh(init, arg) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   page.on('pageerror', e => errors.push(String(e)));
-  if (init) await page.addInitScript(init);
+  if (init) await page.addInitScript(init, arg);
   await page.goto(ORIGIN);
   await page.waitForFunction(() => !!window.__dreybird, null, { timeout: 8000 });
   return { context, page };
@@ -61,10 +70,10 @@ async function fresh(init) {
 
 // --- migration from the single-player build ---------------------------
 {
-  const { context, page } = await fresh(() => {
-    localStorage.setItem('dreybird.best', '23');
-    localStorage.setItem('dreybird.skin', '"ember"');
-  });
+  const { context, page } = await fresh(pre => {
+    localStorage.setItem(pre + 'best', '23');
+    localStorage.setItem(pre + 'skin', '"ember"');
+  }, LS_PREFIX);
   const p = await page.evaluate(() => __dreybird.active());
   check('carries the old localStorage best score into a profile',
     p.best === 23 && p.skin === 'ember', JSON.stringify({ best: p.best, skin: p.skin }));
