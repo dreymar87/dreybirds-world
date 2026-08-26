@@ -1273,6 +1273,38 @@
   const ROOST_SPEED = 1.8;     // the Roost drifts slower than the world
   const ROOST_COINS = 12;       // coins on the line you fly
   const ROOST_COIN = 2;         // each, through earn(), so coinMul applies
+  /* ── the lands ────────────────────────────────────────────────────
+     Between the pipe-lands the world stops rushing at you. Hold a thumb
+     down and DreyBird accelerates toward it; let go and he coasts and
+     sinks. Gravity is always on, so releasing always means descending —
+     but the steering is stronger than it, so holding above him lifts and
+     holding below him dives. Nothing in a land can kill him. */
+  const GLIDE_G = 0.13;         // a coast, not the pipe-lands' 0.42 fall
+  const STEER_A = 0.42;         // pull toward the thumb; must exceed GLIDE_G
+  /* How far out the pull starts relaxing. It also sets how far below your
+     thumb he comes to rest, because that is where the eased pull balances
+     gravity: sag = GLIDE_G * STEER_EASE / STEER_A. A little sag is wanted —
+     it keeps him out from under your fingertip — so this is tuned for it
+     rather than against it. At these numbers it is about 14px. */
+  const STEER_EASE = 46;
+  const GLIDE_MAX = 3.6;        // terminal speed, so it never gets away from you
+  const GLIDE_DRAG = 0.94;      // what makes letting go read as gliding
+  const TAP_MS = 260;           // shorter than this, and barely moved, is a tap
+  const TAP_SLOP = 10;
+
+  /* The Glade. One screen, no camera: the whole place is the 288x512 the
+     game already draws in, which is what lets a land exist at all without
+     a viewport, a scroll offset, or a second coordinate system. */
+  const GLADE_PHASE = { sky0: '#8fd3f4', sky1: '#dff6e3', cloud: '#ffffff',
+                        city: '#7fae7a', dirt: '#8a6a3f', grass: '#5fa855',
+                        sun: '#fff3c8', star: 0 };
+  const GLADE = {
+    thistle: { x: 70, y: 368, r: 40 },        // r: how near you must be to talk
+    seeds: [{ x: 206, y: 132 }, { x: 108, y: 96 }, { x: 244, y: 292 }],
+    gate: { x: W - 26 }                       // the brambles, and the way east
+  };
+  const SEED_R = 9;
+
   const ROOST_PHASE = { sky0: '#1a0b3d', sky1: '#4a2378', cloud: '#6b3fa0',
                         city: '#150835', dirt: '#2a1550', grass: '#7f5ce0',
                         sun: '#ffe9ff', star: 1 };
@@ -1495,7 +1527,10 @@
   /* ── world state ────────────────────────────────────────────────── */
   const READY = 0, PLAYING = 1, DYING = 2, OVER = 3;
 
-  const bird = { x: BIRD_X, y: 240, py: 240, vy: 0, rot: 0, prot: 0, wing: 0 };
+  // vx and px exist for the lands, where DreyBird chooses where to go. In
+  // free mode and inside a pipe-land x never moves, so px always equals x
+  // and the interpolation below is a no-op there.
+  const bird = { x: BIRD_X, px: BIRD_X, y: 240, py: 240, vx: 0, vy: 0, rot: 0, prot: 0, wing: 0 };
   const pipes = [];
   const powers = [];
   const roostCoins = [];   // the Roost's line, alive only while you are in it
@@ -1524,6 +1559,11 @@
     levelUp: 0,
     beatBest: false,
     seed: 0,
+    /* Orthogonal to G.state, which keeps its exact meaning. 'free' is the
+       endless game and behaves precisely as it always has; the other two are
+       sub-modes inside PLAYING, the shape G.roost already proved safe. */
+    mode: 'free',               // 'free' | 'explore' | 'stage'
+    explore: null,              // the land you are in, while you are in one
     portalAt: null,             // pipe index of this run's portal, if any
     portalPipe: null,           // the live portal pipe, while one is on screen
     forcePortalAt: -1,          // test hook only; -1 leaves placement to the seed
@@ -1602,6 +1642,8 @@
     G.portalPipe = null;
     G.roost = null;
     roostCoins.length = 0;
+    // Leaving a land restores the fixed-x bird the rest of the game assumes.
+    if (G.mode === 'explore') leaveLand();
     G.state = READY;
     syncStage();
   }
@@ -1945,6 +1987,134 @@
     audio.power();
   }
 
+  /* Flight in a land. Gravity is always applied, so letting go always
+     means sinking — that is what makes the coast read as a coast. Steering
+     is an acceleration toward the thumb rather than a position, so the bird
+     carries momentum and arrives rather than snapping. Both are capped
+     together as a speed, so no combination of the two can outrun the
+     screen. */
+  function tickExplore() {
+    const E = G.explore;
+    E.t++;
+
+    bird.vy += GLIDE_G;
+    if (hold.on) {
+      const dx = hold.x - bird.x, dy = hold.y - bird.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 1) {
+        /* Eased off as he arrives. A constant pull toward the thumb never
+           stops pulling, so he sails past the point and comes back, and
+           back again — which reads as jitter precisely when you are trying
+           to hold still beside someone to talk to them. */
+        const ease = Math.min(1, d / STEER_EASE);
+        bird.vx += (dx / d) * STEER_A * ease;
+        bird.vy += (dy / d) * STEER_A * ease;
+      }
+      if (bird.wing === 0 && G.ticks % 9 === 0) bird.wing = 9;
+    }
+
+    bird.vx *= GLIDE_DRAG;
+    bird.vy *= GLIDE_DRAG;
+    const sp = Math.hypot(bird.vx, bird.vy);
+    if (sp > GLIDE_MAX) { bird.vx = bird.vx / sp * GLIDE_MAX; bird.vy = bird.vy / sp * GLIDE_MAX; }
+
+    bird.x += bird.vx;
+    bird.y += bird.vy;
+
+    // The edges hold him rather than end him. Nothing in a land is fatal,
+    // which is the whole difference between here and a pipe-land.
+    const hw = G.hitW / 2, hh = G.hitH / 2;
+    if (bird.x < hw + 2) { bird.x = hw + 2; bird.vx = Math.max(bird.vx, 0); }
+    if (bird.x > W - hw - 2) { bird.x = W - hw - 2; bird.vx = Math.min(bird.vx, 0); }
+    if (bird.y < hh + 2) { bird.y = hh + 2; bird.vy = Math.max(bird.vy, 0); }
+    if (bird.y > GY - hh) { bird.y = GY - hh; bird.vy = Math.min(bird.vy, 0); }
+
+    // Seeds, on the same forgiving box the power-ups use.
+    GLADE.seeds.forEach((sd, i) => {
+      if (E.got[i]) return;
+      if (Math.abs(sd.x - bird.x) < SEED_R + G.hitW / 2 &&
+          Math.abs(sd.y - bird.y) < SEED_R + G.hitH / 2) {
+        E.got[i] = true;
+        audio.score();
+        puff(sd.x, sd.y, '#ffe07a', 8);
+      }
+    });
+
+    const target = clamp(bird.vy * 0.10, -0.45, 0.9);
+    bird.rot += (target - bird.rot) * 0.16;
+  }
+
+  const gotAll = E => E.got.every(Boolean);
+  const nearThistle = () =>
+    Math.hypot(GLADE.thistle.x - bird.x, GLADE.thistle.y - bird.y) < GLADE.thistle.r;
+
+  /* A short, still press. If he is already saying something, it advances;
+     otherwise, standing near enough to Thistle starts him talking. Holding
+     to fly and tapping to talk have to share one thumb, and the only thing
+     separating them is that a tap is brief and does not move. */
+  function tapLand(x, y) {
+    void x; void y;
+    const E = G.explore;
+    if (!E) return;
+    if (E.saying) { advanceTalk(); return; }
+    if (nearThistle()) startTalk();
+  }
+
+  function startTalk() {
+    const E = G.explore;
+    E.line = 0;
+    E.saying = E.opened ? THISTLE.after
+      : gotAll(E) ? THISTLE.thanks
+      : E.talked ? THISTLE.again : THISTLE.first;
+    if (!E.talked) E.talked = 1;
+    audio.pop();
+  }
+
+  function advanceTalk() {
+    const E = G.explore;
+    E.line++;
+    if (E.line < E.saying.length) return;
+    // The end of the thanks speech is the moment the brambles come apart.
+    if (E.saying === THISTLE.thanks && !E.opened) {
+      E.opened = true;
+      G.flash = reduceMotion ? 0 : 0.6;
+      audio.power();
+    }
+    E.saying = null;
+  }
+
+  const THISTLE = {
+    first: ['A mouse looks up from the roots.',
+            'Wind took my whole seed store into the reeds.',
+            'Three of them landed hereabouts. Fetch them and',
+            'I will pull these brambles apart for you.'],
+    again: ['Three seeds. They caught in the air, so look up.'],
+    thanks: ['He turns them over, satisfied.',
+             'That is the lot. Mind the reeds — it is close flying.',
+             'The brambles part with a dry crack.'],
+    after:  ['Straight on east, and good luck to you.']
+  };
+
+  function enterLand(id) {
+    G.mode = 'explore';
+    G.explore = { id: id, t: 0, got: [false, false, false], talked: 0,
+                  opened: false, saying: null, line: 0 };
+    G.state = PLAYING;
+    bird.x = 70; bird.px = 70;
+    bird.y = 240; bird.py = 240;
+    bird.vx = 0; bird.vy = 0;
+    bird.rot = 0; bird.prot = 0;
+    syncStage();
+  }
+
+  function leaveLand() {
+    G.mode = 'free';
+    G.explore = null;
+    // Free mode and every pipe-land assume a bird that never moves in x.
+    bird.x = BIRD_X; bird.px = BIRD_X;
+    bird.vx = 0;
+  }
+
   function tick() {
     if (G.paused) return;      // the loop keeps rendering; the world stops
     if (G.hitStop > 0) { G.hitStop--; return; }
@@ -1952,6 +2122,7 @@
     const ts = G.slow > 0 && G.state === PLAYING ? SLOWMO : 1;
 
     bird.py = bird.y;
+    bird.px = bird.x;
     bird.prot = bird.rot;
     if (bird.wing > 0) bird.wing--;
 
@@ -1961,6 +2132,8 @@
       bird.rot = Math.sin(G.ticks / 15) * 0.07;
       G.scroll += G.speed;
       G.cycle += G.speed;
+    } else if (G.state === PLAYING && G.mode === 'explore') {
+      tickExplore();
     } else if (G.state === PLAYING && G.roost) {
       tickRoost();
     } else if (G.state === PLAYING) {
@@ -2257,9 +2430,12 @@
     }
     ctx.restore();
 
-    // Skyline, parallax at a quarter speed.
+    /* Skyline, parallax at a quarter speed. A land skips it: a row of
+       buildings on the horizon reads as a town however green it is
+       painted, and the far ridge on its own reads as hills, which is what
+       a glade wants behind it. */
     const bo = (G.scroll * 0.25) % 38;
-    for (const b of buildings) {
+    for (const b of (G.mode === 'explore' ? [] : buildings)) {
       const x = Math.round(b.x - bo - 38);
       if (x > W || x + b.w < 0) continue;
       ctx.fillStyle = ph.city;
@@ -2414,9 +2590,99 @@
 
   /* A gust you cannot see coming is unfair rather than hard, so it is
      announced before it bites and stays marked while it blows. */
+  /* The Glade, drawn over the sky and ground the game already knows how to
+     draw — the palette is the only thing that makes it somewhere else. */
+  function drawThistle(x, y) {
+    ctx.save();
+    // A stump to stand on, so he reads as somebody rather than as debris.
+    ctx.fillStyle = '#6b4f33'; ctx.fillRect(x - 13, y, 26, GY - y);
+    ctx.fillStyle = '#8a6a45'; ctx.fillRect(x - 13, y, 26, 5);
+    ctx.fillStyle = '#5b4229'; ctx.fillRect(x - 13, y, 3, GY - y);
+    ctx.fillStyle = '#8a7358';                      // body
+    ctx.fillRect(x - 6, y - 7, 12, 7);
+    ctx.fillRect(x - 8, y - 5, 3, 5);               // head
+    ctx.fillStyle = '#6b5842';                      // ear
+    ctx.fillRect(x - 9, y - 8, 4, 4);
+    ctx.fillStyle = '#2a2018';
+    ctx.fillRect(x - 8, y - 5, 1, 1);               // eye
+    ctx.strokeStyle = '#8a7358'; ctx.lineWidth = 1; // tail
+    ctx.beginPath(); ctx.moveTo(x + 6, y - 3);
+    ctx.quadraticCurveTo(x + 14, y - 6, x + 12, y - 12); ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawSeed(sd, t) {
+    const bob = reduceMotion ? 0 : Math.sin(t / 16 + sd.x) * 2;
+    ctx.save();
+    ctx.globalAlpha = 0.3; ctx.fillStyle = '#ffe07a';
+    ctx.beginPath(); ctx.arc(sd.x, sd.y + bob, SEED_R + 4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = '#c9921f';
+    ctx.beginPath(); ctx.ellipse(sd.x, sd.y + bob, SEED_R - 3, SEED_R, 0.4, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe9a8';
+    ctx.fillRect(Math.round(sd.x - 1), Math.round(sd.y + bob - 3), 2, 4);
+    ctx.restore();
+  }
+
+  function drawBrambles(open) {
+    const x = GLADE.gate.x;
+    ctx.save();
+    if (open) {
+      // Pulled aside rather than gone: the way through is the story.
+      ctx.strokeStyle = '#4a3524'; ctx.lineWidth = 3;
+      for (const yy of [40, 96, 300, 356]) {
+        ctx.beginPath(); ctx.moveTo(x + 4, yy - 24);
+        ctx.quadraticCurveTo(x + 22, yy, x + 6, yy + 24); ctx.stroke();
+      }
+    } else {
+      ctx.strokeStyle = '#3d2b1c'; ctx.lineWidth = 3;
+      for (let yy = 20; yy < GY; yy += 26) {
+        ctx.beginPath(); ctx.moveTo(x - 6, yy);
+        ctx.quadraticCurveTo(x + 14, yy + 13, x - 4, yy + 26); ctx.stroke();
+      }
+      ctx.strokeStyle = '#5c4430'; ctx.lineWidth = 2;
+      for (let yy = 8; yy < GY; yy += 26) {
+        ctx.beginPath(); ctx.moveTo(x + 16, yy);
+        ctx.quadraticCurveTo(x - 2, yy + 13, x + 14, yy + 26); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawGlade(alpha) {
+    void alpha;
+    const E = G.explore;
+    drawBrambles(E.opened);
+    for (let i = 0; i < GLADE.seeds.length; i++) {
+      if (!E.got[i]) drawSeed(GLADE.seeds[i], G.ticks);
+    }
+    drawThistle(GLADE.thistle.x, GLADE.thistle.y);
+
+    // What you are carrying, and what is left.
+    const have = E.got.filter(Boolean).length;
+    textOut(ctx, 'SEEDS  ' + have + ' / 3', W / 2, 40, 8, '#ffe07a', '#20160a');
+
+    if (E.saying) {
+      const lines = E.saying, i = Math.min(E.line, lines.length - 1);
+      ctx.save();
+      ctx.fillStyle = 'rgba(14,18,10,.86)';
+      ctx.fillRect(14, 228, W - 28, 62);
+      ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1;
+      ctx.strokeRect(14.5, 228.5, W - 29, 61);
+      ctx.restore();
+      textOut(ctx, lines[i], W / 2, 252, 6, '#f2ead8', '#20160a');
+      textOut(ctx, i + 1 < lines.length ? 'TAP TO GO ON' : 'TAP TO CLOSE',
+        W / 2, 276, 5, 'rgba(255,255,255,.6)', '#20160a');
+    } else if (nearThistle()) {
+      textOut(ctx, 'TAP TO TALK', GLADE.thistle.x, GLADE.thistle.y - 34, 6,
+        '#ffffff', '#20160a');
+    } else if (!E.opened) {
+      textOut(ctx, 'HOLD TO FLY', W / 2, 62, 6, 'rgba(255,255,255,.7)', '#20160a');
+    }
+  }
+
   function drawWeather() {
     // The world's weather belongs to the world, not to the room next door.
-    if (G.roost) return;
+    if (G.roost || G.mode === 'explore') return;
     if (G.fog) {
       const fade = clamp((G.fog.until - G.ticks) / 40, 0, 1);
       const g = ctx.createLinearGradient(0, G.fog.y - 30, 0, G.fog.y + 110);
@@ -2483,7 +2749,7 @@
   }
 
   function drawHud() {
-    if (G.state === PLAYING || G.state === DYING) {
+    if ((G.state === PLAYING || G.state === DYING) && G.mode !== 'explore') {
       textOut(ctx, String(G.score), W / 2, 62, 24, '#ffffff', '#20160a');
     }
     if (G.slow > 0 && G.state === PLAYING && !G.roost) {
@@ -2625,7 +2891,7 @@
   function render(alpha) {
     const by = lerp(bird.py, bird.y, alpha);
     const brot = lerp(bird.prot, bird.rot, alpha);
-    const ph = G.roost ? ROOST_PHASE : phaseNow();
+    const ph = G.mode === 'explore' ? GLADE_PHASE : G.roost ? ROOST_PHASE : phaseNow();
 
     ctx.setTransform(RS, 0, 0, RS, 0, 0);
     if (G.shake > 0.2) {
@@ -2634,7 +2900,9 @@
 
     drawSky(ph);
 
-    if (G.roost) {
+    if (G.mode === 'explore') {
+      drawGlade(alpha);
+    } else if (G.roost) {
       for (const c of roostCoins) if (!c.got) drawRoostCoin(c, lerp(c.px, c.x, alpha));
     } else {
       for (const p of pipes) {
@@ -2664,9 +2932,10 @@
     const wing = bird.wing > 6 ? -2 : bird.wing > 3 ? 0 : bird.wing > 0 ? 2
       : (G.state === PLAYING || G.state === READY ? (Math.sin(G.ticks / 7) > 0 ? 0 : 2) : 0);
     const blink = G.invuln > 0 && Math.floor(G.ticks / 4) % 2 === 0 ? 0.4 : null;
-    drawAuraAt(bird.x, by);
-    drawBird(ctx, bird.x, by, brot, G.skin, wing, blink);
-    drawHat(ctx, bird.x, by, brot, G.hat, blink);
+    const bx = lerp(bird.px, bird.x, alpha);
+    drawAuraAt(bx, by);
+    drawBird(ctx, bx, by, brot, G.skin, wing, blink);
+    drawHat(ctx, bx, by, brot, G.hat, blink);
 
     drawWeather();
     drawHud();
@@ -2822,7 +3091,41 @@
     else if (G.state === OVER && G.ticks - G.overAt > 24) resetWorld();
   }
 
-  cv.addEventListener('pointerdown', e => { e.preventDefault(); press(); });
+  /* The thumb. The classic game only ever needed to know that a tap
+     happened; the lands need to know where it is being held, and for how
+     long, so that a short still press can mean "talk to him" while a long
+     one means "fly this way". Free mode is untouched: it still just taps. */
+  const hold = { on: false, x: 0, y: 0, at: 0, fromX: 0, fromY: 0, moved: 0 };
+
+  function toGame(e) {
+    const r = cv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * W,
+             y: (e.clientY - r.top) / r.height * H };
+  }
+
+  cv.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const pt = toGame(e);
+    hold.on = true; hold.x = pt.x; hold.y = pt.y;
+    hold.fromX = pt.x; hold.fromY = pt.y; hold.moved = 0;
+    hold.at = performance.now();
+    if (G.mode !== 'explore') press();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!hold.on) return;
+    const pt = toGame(e);
+    hold.x = pt.x; hold.y = pt.y;
+    hold.moved = Math.max(hold.moved, Math.hypot(pt.x - hold.fromX, pt.y - hold.fromY));
+  });
+  const release = () => {
+    if (!hold.on) return;
+    const quick = performance.now() - hold.at < TAP_MS && hold.moved < TAP_SLOP;
+    hold.on = false;
+    if (G.mode === 'explore' && quick) tapLand(hold.fromX, hold.fromY);
+  };
+  cv.addEventListener('pointerup', release);
+  cv.addEventListener('pointercancel', release);
+  cv.addEventListener('pointerleave', release);
   cv.addEventListener('contextmenu', e => e.preventDefault());
   addEventListener('keydown', e => {
     if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'Enter') {
@@ -3968,6 +4271,15 @@
       trailParticles: () => trail,
       PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
       PORTAL_START, PORTAL_H, RING_R, PULL_RANGE, ROOST_TICKS, ROOST_COINS, ROOST_COIN,
+      GLIDE_G, STEER_A, GLIDE_MAX, STEER_EASE,
+      enterLand, leaveLand,
+      land: () => G.explore,
+      // Drives the thumb without a real pointer, for the checks that measure
+      // what steering actually does to velocity.
+      GLADE, THISTLE,
+      tapLand,
+      holdAt: (x, y) => { hold.on = true; hold.x = x; hold.y = y; },
+      letGo: () => { hold.on = false; },
       roostCoins: () => roostCoins,
       // Without a way to place one, testing the door means flying 15+ pipes
       // and hitting a 32px target — expensive, and flaky enough to be useless.
