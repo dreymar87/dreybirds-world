@@ -1,0 +1,90 @@
+name: Deploy to GitHub Pages
+
+# The github-pages environment only accepts deployments from the default
+# branch, so this deploys from main. Pushes to other branches are rejected
+# before the job starts, which produces a failed run with no logs.
+# Tests run on every branch. Deploying stays restricted to main, and now
+# cannot happen at all while anything is red.
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a newer deploy finish; don't cancel one that's mid-flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # One job per suite. Run in sequence they take about fifteen minutes;
+  # in parallel the wall clock is the slowest single suite.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false          # one red suite should not hide the others
+      matrix:
+        suite: [smoke, pwa, profiles, cosmetics, determinism, comfort, dynamics, progression, crash, polish, portal, stats]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Cache the browser
+        id: browser-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npx playwright install --with-deps chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+
+      - run: npx playwright install-deps chromium
+        if: steps.browser-cache.outputs.cache-hit == 'true'
+
+      - name: ${{ matrix.suite }}
+        run: npm run test:${{ matrix.suite }}
+
+  deploy:
+    # The whole point: publishing is impossible while a suite is failing.
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # No enablement: true here. Creating a Pages site for the first time
+      # needs repo-admin rights, which the Actions GITHUB_TOKEN does not
+      # have — asking for it only buries the real cause under a second,
+      # unfixable "Create Pages site failed" error. The site is created once
+      # by hand (Settings → Pages → Source → GitHub Actions); after that
+      # this step just reads the existing config.
+      - uses: actions/configure-pages@v5
+
+      # Publish only what the game needs — not the test harness.
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp index.html manifest.webmanifest sw.js _site/
+          cp -r icons _site/
+          touch _site/.nojekyll
+          ls -R _site
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

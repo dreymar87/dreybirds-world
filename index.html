@@ -1,0 +1,4054 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DreyBird's World</title>
+<meta name="description" content="A one-file tribute to Flappy Bird. Tap to flap, thread the pipes, chase a medal.">
+<meta name="theme-color" content="#dfe0e8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0e14" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="DreyBird">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon-180.png">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- media="print" keeps this off the parser's critical path: a pending
+     stylesheet blocks the scripts that follow it, and the typeface is
+     optional. The script below promotes it to all once it has loaded. -->
+<link id="typeface" rel="stylesheet" media="print"
+      href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;700&family=Press+Start+2P&display=swap">
+
+<style>
+  :root {
+    --page:      #dfe0e8;
+    --page-2:    #c7c9d8;
+    --text:      #22242f;
+    --text-soft: #5a5d70;
+    --line:      rgba(34, 36, 47, .18);
+    --accent:    #c47c14;
+    --sheet:     #f7f7fb;
+    --sheet-2:   #e9ebf3;
+    --shadow:    0 18px 44px rgba(20, 22, 34, .28);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page:      #0d0e14;
+      --page-2:    #191c27;
+      --text:      #d3d6e3;
+      --text-soft: #878ba2;
+      --line:      rgba(211, 214, 227, .16);
+      --accent:    #f5b32d;
+      --sheet:     #171a25;
+      --sheet-2:   #212536;
+      --shadow:    0 18px 44px rgba(0, 0, 0, .6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --page:      #0d0e14;
+    --page-2:    #191c27;
+    --text:      #d3d6e3;
+    --text-soft: #878ba2;
+    --line:      rgba(211, 214, 227, .16);
+    --accent:    #f5b32d;
+    --sheet:     #171a25;
+    --sheet-2:   #212536;
+    --shadow:    0 18px 44px rgba(0, 0, 0, .6);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: radial-gradient(ellipse 120% 80% at 50% -10%, var(--page-2), var(--page) 70%);
+    color: var(--text);
+    font-family: "Chivo", ui-sans-serif, system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom));
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  #stage {
+    position: relative;
+    aspect-ratio: 288 / 512;
+    height: min(100%, calc(100dvw * 512 / 288));
+    max-height: 100%;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    background: #4ec0e0;
+    flex: 0 1 auto;
+  }
+
+  canvas#game {
+    display: block;
+    width: 100%;
+    height: 100%;
+    image-rendering: pixelated;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+  }
+
+  /* ---- overlay controls ---- */
+  /* Two rows, laid out by flex. They used to be six absolutely positioned
+     buttons each carrying its own `left`, which meant adding one and
+     forgetting its rule dropped it at the stage's edge, on top of whatever
+     was already there, silently eating that button's taps. A row cannot do
+     that to itself. */
+  .tools { position: absolute; top: 8px; display: flex; gap: 8px; }
+  .tools-left { left: 8px; }
+  .tools-right { right: 8px; }
+  .iconbtn {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, .35);
+    border-radius: 3px;
+    background: rgba(16, 20, 34, .34);
+    color: #fff;
+    cursor: pointer;
+    transition: opacity .25s ease, transform .12s ease, background .2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .iconbtn:hover { background: rgba(16, 20, 34, .52); }
+  .iconbtn:active { transform: scale(.94); }
+  .iconbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .iconbtn svg { width: 22px; height: 22px; display: block; }
+  #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
+  /* Once it has crashed none of these do anything, so stop offering them. */
+  #stage[data-crashed="1"] .iconbtn { display: none; }
+  #stage[data-crashed="1"] canvas { cursor: default; }
+  /* The pause control is the exception: it exists only while playing, and
+     stays live while the others fade out. */
+  #btn-pause { display: none; }
+  #stage[data-playing="1"] #btn-pause { display: grid; opacity: 1; pointer-events: auto; }
+  .iconbtn .off-slash { display: none; }
+  .iconbtn[aria-pressed="true"] .off-slash { display: block; }
+  .iconbtn[aria-pressed="true"] .wave { display: none; }
+
+  /* ---- overlay sheets (bird picker, players) ---- */
+  .sheet {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    background: rgba(9, 11, 20, .82);
+    backdrop-filter: blur(3px);
+    padding: 16px 14px;
+    gap: 12px;
+    z-index: 5;
+  }
+  .sheet[hidden] { display: none; }
+  .sheet h2 {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .04em;
+    color: #fff;
+    margin: 2px 0 0;
+    text-align: center;
+    text-wrap: balance;
+  }
+  .sheet .hint {
+    margin: 0;
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.45;
+    color: rgba(255, 255, 255, .62);
+  }
+  .sheet .hint.warn { color: #ffcf8f; }
+  .sheet-list {
+    list-style: none;
+    margin: 0;
+    padding: 0 2px 2px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    flex: 0 1 auto;
+    margin-block: auto;
+    width: 100%;
+  }
+  .card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .07);
+    color: #fff;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background .18s ease, border-color .18s ease;
+  }
+  .card:hover:not(:disabled) { background: rgba(255, 255, 255, .14); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .card[aria-pressed="true"] { border-color: var(--accent); background: rgba(245, 179, 45, .18); }
+  .card:disabled { cursor: not-allowed; opacity: .55; }
+  .card canvas { width: 44px; height: auto; image-rendering: pixelated; flex: none; }
+  .card .meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+  .card .name {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .03em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .card .req { font-size: 11px; color: rgba(255, 255, 255, .6); }
+  .card[aria-pressed="true"] .req { color: var(--accent); }
+
+  /* players: the active row grows a rename/delete strip */
+  .player-row { display: flex; flex-direction: column; gap: 0; }
+  .name-input {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: .03em;
+    color: #fff;
+    background: rgba(0, 0, 0, .35);
+    border: 1px solid var(--accent);
+    border-radius: 2px;
+    padding: 4px 5px;
+    width: 100%;
+    min-width: 0;
+  }
+  .name-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .row-tools {
+    display: flex;
+    gap: 6px;
+    padding: 0 10px 8px;
+    margin-top: -1px;
+    border: 1px solid var(--accent);
+    border-top: none;
+    border-radius: 0 0 3px 3px;
+    background: rgba(245, 179, 45, .18);
+  }
+  .tool {
+    flex: 1;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 7px 6px;
+    color: #fff;
+    background: rgba(0, 0, 0, .28);
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .tool:hover { background: rgba(0, 0, 0, .45); }
+  .tool:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+  .tool[data-armed="1"] { background: #a3281a; border-color: #e0452f; }
+  .tool:disabled { opacity: .4; cursor: not-allowed; }
+
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    flex: 1;
+    font-family: inherit;
+    font-size: 11px;
+    padding: 9px 2px;
+    color: rgba(255, 255, 255, .72);
+    background: rgba(255, 255, 255, .07);
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .tab:hover { background: rgba(255, 255, 255, .14); }
+  .tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .tab[aria-selected="true"] {
+    color: #fff;
+    border-color: var(--accent);
+    background: rgba(245, 179, 45, .22);
+  }
+  .wallet {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--accent);
+    letter-spacing: .04em;
+  }
+  .coin {
+    width: 11px; height: 11px; border-radius: 50%;
+    background: #f5c33b;
+    box-shadow: inset 0 0 0 2px #c99114;
+    flex: none;
+  }
+  .card .trade { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
+  .tag {
+    font-size: 10px;
+    line-height: 1.5;
+    padding: 0 5px;
+    border-radius: 2px;
+    white-space: nowrap;
+  }
+  .tag.up { background: rgba(90, 212, 111, .18); color: #a6e9b4; }
+  .tag.down { background: rgba(224, 69, 47, .16); color: #f0a99c; }
+  .tag.even { background: rgba(255, 255, 255, .08); color: rgba(255, 255, 255, .6); }
+
+  .card .price { font-size: 11px; color: var(--accent); }
+  .card .price.short { color: rgba(255, 255, 255, .45); }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+  .swatch {
+    flex: 1 1 60px;
+    min-width: 60px;
+    padding: 0 0 5px;
+    border: 1px solid rgba(255, 255, 255, .18);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .05);
+    color: rgba(255, 255, 255, .72);
+    font-family: inherit;
+    font-size: 10px;
+    cursor: pointer;
+    overflow: hidden;
+  }
+  .swatch canvas { width: 100%; height: 26px; display: block; image-rendering: pixelated; margin-bottom: 5px; }
+  .swatch[aria-pressed="true"] { border-color: var(--accent); background: rgba(245, 179, 45, .2); color: #fff; }
+  .swatch:hover { background: rgba(255, 255, 255, .12); }
+  .swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  .setting {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px;
+    border: 1px solid rgba(255, 255, 255, .16);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .07);
+    color: #fff;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .setting:hover { background: rgba(255, 255, 255, .14); }
+  .setting:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .setting .meta { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+  .setting .name { font-family: "Press Start 2P", ui-monospace, monospace; font-size: 9px; letter-spacing: .03em; }
+  .setting .req { font-size: 11px; color: rgba(255, 255, 255, .6); }
+  .switch {
+    flex: none;
+    width: 38px; height: 22px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .16);
+    position: relative;
+    transition: background .18s ease;
+  }
+  .switch::after {
+    content: '';
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform .18s ease;
+  }
+  .setting[aria-pressed="true"] .switch { background: var(--accent); }
+  .setting[aria-pressed="true"] .switch::after { transform: translateX(16px); }
+
+  /* The shared .sheet-list centres itself, which is right for a list of
+     cards but leaves a void in a settings panel. Top-align here and let
+     the Back button take the slack. */
+  #settings-list { margin-block: 0; }
+  #settings-close { margin-top: auto; }
+
+  .sheet-section {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 8px;
+    letter-spacing: .06em;
+    color: rgba(255, 255, 255, .45);
+    margin: 4px 0 -4px;
+  }
+
+  /* Stats. The numbers are tiles; only the run history is a chart, because
+     only it is about change over time. The medal case stays a labelled list
+     rather than four coloured bars — bronze against gold is exactly the pair
+     colour-blind readers cannot separate, and a label never has that
+     problem. */
+  #stats-body { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+  .tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .tile {
+    border: 1px solid rgba(255, 255, 255, .14);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .05);
+    padding: 7px 6px;
+    text-align: center;
+  }
+  .tile b { display: block; font-size: 13px; color: #ffe07a; letter-spacing: .02em; }
+  .tile span { display: block; margin-top: 4px; font-size: 7px; color: rgba(255, 255, 255, .62); }
+  .tile.wide { grid-column: span 3; }
+  .tile.wide b { font-size: 16px; }
+
+  .chart {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;                       /* the surface gap between adjacent bars */
+    height: 74px;
+  }
+  .chart li {
+    flex: 1 1 0;
+    min-width: 3px;
+    /* Anchored to the baseline, rounded only at the data end. */
+    background: #c08a1e;
+    border-radius: 3px 3px 0 0;
+    min-height: 2px;
+  }
+  .chart-wrap { position: relative; }
+  .chart-rule {
+    position: absolute; left: 0; right: 0;
+    border-top: 1px dashed rgba(255, 255, 255, .3);   /* recessive, behind the data */
+    pointer-events: none;
+  }
+  .chart-foot { display: flex; justify-content: space-between; margin-top: 5px; font-size: 6px;
+                color: rgba(255, 255, 255, .55); }
+  .sr {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  }
+  .sheet-actions { display: flex; gap: 6px; }
+  .sheet-btn {
+    font-family: "Press Start 2P", ui-monospace, monospace;
+    font-size: 10px;
+    padding: 13px;
+    border: 1px solid rgba(255, 255, 255, .3);
+    border-radius: 3px;
+    background: rgba(255, 255, 255, .1);
+    color: #fff;
+    cursor: pointer;
+    letter-spacing: .06em;
+  }
+  .sheet-actions .sheet-btn { flex: 1; font-size: 8px; padding: 11px 4px; }
+  /* Saved is calm; anything else quietly asks for attention. */
+  .sheet-btn[data-state="current"] { border-color: rgba(90, 212, 111, .5); color: #a6e9b4; }
+  .sheet-btn[data-state="stale"] { border-color: rgba(245, 179, 45, .55); color: var(--accent); }
+  .sheet-btn:hover { background: rgba(255, 255, 255, .18); }
+  .sheet-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  footer {
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-soft);
+    text-align: center;
+    letter-spacing: .01em;
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+  }
+  footer p { margin: 0; max-width: 46ch; text-wrap: balance; }
+  #install {
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: .02em;
+    color: var(--page);
+    background: var(--accent);
+    border: none;
+    border-radius: 3px;
+    padding: 9px 18px;
+    cursor: pointer;
+    transition: filter .18s ease, transform .12s ease;
+  }
+  #install:hover { filter: brightness(1.08); }
+  #install:active { transform: scale(.97); }
+  #install:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+  #install[hidden], #ios-install[hidden] { display: none; }
+  :root[data-standalone="1"] footer { display: none; }
+  footer b {
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: .02em;
+  }
+  footer kbd {
+    font-family: ui-monospace, monospace;
+    font-size: 10.5px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 1px 4px;
+    color: var(--text);
+  }
+  @media (max-height: 660px) { footer { display: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+
+<div id="stage" data-playing="0">
+  <canvas id="game" width="576" height="1024" role="img" aria-label="DreyBird — tap to flap"></canvas>
+
+  <div class="tools tools-left">
+  <button id="btn-player" class="iconbtn" type="button" aria-label="Players">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="8" r="3.6"></circle>
+      <path d="M4.8 20a7.2 7.2 0 0 1 14.4 0"></path>
+    </svg>
+  </button>
+
+  <button id="btn-skins" class="iconbtn" type="button" aria-label="Shop">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3a9 9 0 0 0 0 18h2a2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3H19a2.6 2.6 0 0 0 2-2.6A9 9 0 0 0 12 3Z"></path>
+      <circle cx="8" cy="9.5" r="1.1" fill="currentColor"></circle>
+      <circle cx="12.5" cy="7" r="1.1" fill="currentColor"></circle>
+      <circle cx="7.5" cy="14.5" r="1.1" fill="currentColor"></circle>
+    </svg>
+  </button>
+
+  <button id="btn-stats" class="iconbtn" type="button" aria-label="Stats">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M22 20H2"></path>
+    </svg>
+  </button>
+  <button id="btn-gear" class="iconbtn" type="button" aria-label="Settings">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="3.2"></circle>
+      <path d="M12 2.6v2.2M12 19.2v2.2M21.4 12h-2.2M4.8 12H2.6M18.6 5.4l-1.6 1.6M7 17l-1.6 1.6M18.6 18.6 17 17M7 7 5.4 5.4"></path>
+    </svg>
+  </button>
+  </div>
+
+  <div class="tools tools-right">
+  <button id="btn-pause" class="iconbtn" type="button" aria-label="Pause">
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <rect x="7" y="5" width="3.6" height="14" rx="1"></rect>
+      <rect x="13.4" y="5" width="3.6" height="14" rx="1"></rect>
+    </svg>
+  </button>
+
+  <button id="btn-sound" class="iconbtn" type="button" aria-label="Mute sound" aria-pressed="false">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M11 5 6.5 9H3v6h3.5L11 19V5Z" fill="currentColor"></path>
+      <g class="wave">
+        <path d="M15 9.5a3.5 3.5 0 0 1 0 5"></path>
+        <path d="M17.8 7a7 7 0 0 1 0 10"></path>
+      </g>
+      <g class="off-slash">
+        <path d="M15.5 9.5 20.5 14.5"></path>
+        <path d="M20.5 9.5 15.5 14.5"></path>
+      </g>
+    </svg>
+  </button>
+  </div>
+
+  <div id="sheet" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Shop">
+    <h2>Shop</h2>
+    <p class="wallet"><span class="coin" aria-hidden="true"></span><span id="wallet">0</span></p>
+    <div id="shop-tabs" class="tabs" role="tablist" aria-label="Cosmetic type">
+      <button class="tab" type="button" role="tab" data-kind="bird" aria-selected="true">Birds</button>
+      <button class="tab" type="button" role="tab" data-kind="hat" aria-selected="false">Hats</button>
+      <button class="tab" type="button" role="tab" data-kind="trail" aria-selected="false">Trails</button>
+      <button class="tab" type="button" role="tab" data-kind="world" aria-selected="false">Worlds</button>
+      <button class="tab" type="button" role="tab" data-kind="feather" aria-selected="false">Perks</button>
+    </div>
+    <ul id="skin-list" class="sheet-list"></ul>
+    <button id="sheet-close" class="sheet-btn" type="button">Back</button>
+  </div>
+
+  <div id="paused" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Paused">
+    <h2>Paused</h2>
+    <p class="hint" id="paused-note">Your run is waiting exactly where you left it.</p>
+    <div class="sheet-actions" style="margin-top:auto">
+      <button id="paused-resume" class="sheet-btn" type="button">Resume</button>
+      <button id="paused-quit" class="sheet-btn" type="button">End run</button>
+    </div>
+  </div>
+
+  <div id="stats" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Stats">
+    <h2>Stats</h2>
+    <div id="stats-body"></div>
+    <div class="sheet-actions">
+      <button id="stats-close" class="sheet-btn" type="button">Back</button>
+    </div>
+  </div>
+
+  <div id="settings" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Settings">
+    <h2>Settings</h2>
+    <p class="sheet-section">BACKGROUND</p>
+    <p class="hint" id="bg-note">Drift through the day, or hold one sky.</p>
+    <div id="bg-swatches" class="swatches"></div>
+    <p class="sheet-section">SOUND</p>
+    <div id="settings-list" class="sheet-list"></div>
+    <button id="settings-close" class="sheet-btn" type="button">Back</button>
+  </div>
+
+  <div id="players" class="sheet" hidden role="dialog" aria-modal="true" aria-label="Players">
+    <h2>Players</h2>
+    <p class="hint" id="storage-note">Checking where your scores are saved…</p>
+    <ul id="player-list" class="sheet-list"></ul>
+    <div class="sheet-actions">
+      <button id="player-new" class="sheet-btn" type="button">New</button>
+      <button id="player-export" class="sheet-btn" type="button">Save file</button>
+      <button id="player-import" class="sheet-btn" type="button">Load file</button>
+    </div>
+    <button id="players-close" class="sheet-btn" type="button">Back</button>
+    <input id="player-file" type="file" accept="application/json,.json" hidden>
+  </div>
+</div>
+
+<footer>
+  <p><b>DreyBird</b> — tap, click, or press <kbd>Space</kbd> to flap. Mind the pipes.</p>
+  <p id="ios-install" hidden>Keep it on your home screen: tap <b>Share</b>, then <b>Add to Home Screen</b>.</p>
+  <button id="install" type="button" hidden>Install DreyBird</button>
+</footer>
+
+<script>
+(() => {
+  'use strict';
+
+  // The typeface loads off the critical path; adopt it once it arrives.
+  // If it never does, the fallback stack is already in use and nothing
+  // waits for it.
+  const typeface = document.getElementById('typeface');
+  if (typeface) {
+    if (typeface.sheet) typeface.media = 'all';
+    else typeface.addEventListener('load', () => { typeface.media = 'all'; }, { once: true });
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     DreyBird — a one-file tribute to Flappy Bird.
+     Logical playfield is 288×512 (the original's aspect); everything is
+     simulated in those units at a fixed 60 Hz so the game feels identical
+     on a 60 Hz phone and a 120 Hz one.
+     ══════════════════════════════════════════════════════════════════ */
+
+  const W = 288, H = 512;      // logical size
+  const GY = 400;              // ground line (top of the base strip)
+  const RS = 2;                // render supersample
+  const DT = 1000 / 60;        // one logical tick, in ms
+
+  // --- feel ---------------------------------------------------------
+  const GRAVITY   = 0.42;
+  const FLAP_V    = -6.7;
+  const MAX_VY    = 11;
+  const BIRD_X    = 64;
+  const SPEED     = 2.05;      // pipe scroll, px/tick
+  const PIPE_W    = 52;
+  const GAP       = 104;
+  const SPACING   = 156;       // horizontal distance between pipe pairs
+  const LIP_H     = 14;
+  const GAP_MIN   = 96, GAP_MAX = 308;
+  const HIT_W     = 18, HIT_H = 13;   // forgiving hitbox, like the original
+  const PU_R      = 10;
+  const PU_TICKS  = 380;       // ~6.3 s of power-up
+  const SLOWMO    = 0.58;
+  const SHIELD_IV = 46;        // invulnerable ticks after a shield pops
+
+  /* Assist mode: gentler everything, for anyone finding the original feel
+     too punishing. A run's physics are fixed at startPlay() rather than
+     read live, so a run is internally consistent and toggling mid-run
+     cannot change how the run in progress behaves — or how it is scored.
+     Story levels and hazards will want the same per-run shape later. */
+  const ASSIST = { gravity: 0.85, flap: 0.92, gap: 18, speed: 0.9 };
+
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ── seeded randomness ────────────────────────────────────────────
+     Everything that shapes a run — pipe gaps, power-up spawns — draws
+     from a seeded generator, so a seed reproduces a run exactly. That is
+     what makes a shared daily challenge and a ghost replay possible, and
+     it lets the tests assert exact scores instead of statistics.
+
+     Cosmetic jitter (particles, screen shake) deliberately stays on
+     Math.random: it cannot affect fairness, and seeding it would only
+     couple the visuals to the simulation. */
+  function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function () {
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const randomSeed = () => (Math.random() * 0xFFFFFFFF) >>> 0;
+
+  /* ── persistence ──────────────────────────────────────────────────
+     Two device-level preferences stay in localStorage (mute, legacy keys).
+     Everything a *player* owns lives in the vault below.
+     Nothing here is security: profiles are labels on a couch game. */
+  const LS_PREFIX = 'dreybirds-world.';   // see DB_NAME below
+  const store = {
+    get(k, d) {
+      try { const v = localStorage.getItem(LS_PREFIX + k); return v == null ? d : JSON.parse(v); }
+      catch (e) { return d; }
+    },
+    set(k, v) { try { localStorage.setItem(LS_PREFIX + k, JSON.stringify(v)); } catch (e) { /* private mode */ } }
+  };
+
+  /* ── the vault: IndexedDB, falling back to localStorage ───────────
+     IndexedDB because a profile is a structured record with history, not
+     a string. localStorage stays as the fallback for private windows and
+     anywhere IndexedDB is blocked — the game must never fail to start
+     because storage is unavailable.
+
+     Every method is async, but the game loop is not: the vault is read
+     once during boot and held in memory, and writes are fire-and-forget.
+     This is also the seam a future server sync would slot into. */
+  /* Named apart from the classic game on purpose. GitHub Pages project
+     sites all share one origin, and IndexedDB and localStorage are scoped
+     per origin rather than per path — so two games under dreymar87.github.io
+     would read and overwrite each other's profiles if they agreed on a name. */
+  const DB_NAME = 'dreybirds-world', DB_VER = 1, LS_VAULT = 'dreybirds-world.vault';
+
+  const vault = {
+    kind: 'none',
+    db: null,
+
+    /* Writes are started immediately but run one at a time. Without the
+       queue, a profile write and the active-profile write can interleave
+       and a reload can catch the store half-updated. flush() is the
+       promise that everything queued so far has landed. */
+    chain: Promise.resolve(),
+    enqueue(work) {
+      this.chain = this.chain.then(work, work);
+      return this.chain;
+    },
+    flush() { return this.chain; },
+
+    async open() {
+      try {
+        this.db = await new Promise((res, rej) => {
+          if (!self.indexedDB) return rej(new Error('no indexedDB'));
+          const req = indexedDB.open(DB_NAME, DB_VER);
+          req.onupgradeneeded = () => {
+            const d = req.result;
+            if (!d.objectStoreNames.contains('profiles')) d.createObjectStore('profiles', { keyPath: 'id' });
+            if (!d.objectStoreNames.contains('meta')) d.createObjectStore('meta');
+          };
+          req.onsuccess = () => res(req.result);
+          req.onerror = () => rej(req.error || new Error('open failed'));
+          req.onblocked = () => rej(new Error('blocked'));
+        });
+        this.kind = 'indexeddb';
+      } catch (e) {
+        this.db = null;
+        this.kind = self.localStorage ? 'localstorage' : 'memory';
+      }
+      return this.kind;
+    },
+
+    tx(names, mode) {
+      const t = this.db.transaction(names, mode);
+      return names.map(n => t.objectStore(n)).concat(t);
+    },
+
+    req(request) {
+      return new Promise((res, rej) => {
+        request.onsuccess = () => res(request.result);
+        request.onerror = () => rej(request.error);
+      });
+    },
+
+    lsRead() {
+      try { return JSON.parse(localStorage.getItem(LS_VAULT)) || null; } catch (e) { return null; }
+    },
+    lsWrite(state) {
+      try { localStorage.setItem(LS_VAULT, JSON.stringify(state)); } catch (e) { /* full or blocked */ }
+    },
+
+    async load() {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [profs, meta] = this.tx(['profiles', 'meta'], 'readonly');
+          const list = await this.req(profs.getAll());
+          const activeId = await this.req(meta.get('activeId'));
+          return { profiles: list || [], activeId: activeId || null };
+        } catch (e) { /* fall through to the fallback below */ }
+      }
+      const state = this.kind === 'memory' ? null : this.lsRead();
+      return state || { profiles: [], activeId: null };
+    },
+
+    putProfile(profile) { return this.enqueue(() => this.writePutProfile(profile)); },
+
+    async writePutProfile(profile) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [profs] = this.tx(['profiles'], 'readwrite');
+          await this.req(profs.put(profile));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      const i = state.profiles.findIndex(p => p.id === profile.id);
+      if (i < 0) state.profiles.push(profile); else state.profiles[i] = profile;
+      this.lsWrite(state);
+    },
+
+    delProfile(id) { return this.enqueue(() => this.writeDelProfile(id)); },
+
+    async writeDelProfile(id) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [profs] = this.tx(['profiles'], 'readwrite');
+          await this.req(profs.delete(id));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      state.profiles = state.profiles.filter(p => p.id !== id);
+      this.lsWrite(state);
+    },
+
+    setActive(id) { return this.enqueue(() => this.writeSetActive(id)); },
+
+    // Small odds and ends that belong to the device, not to a player.
+    setMeta(key, value) { return this.enqueue(() => this.writeSetMeta(key, value)); },
+
+    async writeSetMeta(key, value) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [meta] = this.tx(['meta'], 'readwrite');
+          await this.req(meta.put(value, key));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      state[key] = value;
+      this.lsWrite(state);
+    },
+
+    async getMeta(key) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [meta] = this.tx(['meta'], 'readonly');
+          return await this.req(meta.get(key));
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return undefined;
+      const state = this.lsRead();
+      return state ? state[key] : undefined;
+    },
+
+    async writeSetActive(id) {
+      if (this.kind === 'indexeddb') {
+        try {
+          const [meta] = this.tx(['meta'], 'readwrite');
+          await this.req(meta.put(id, 'activeId'));
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (this.kind === 'memory') return;
+      const state = this.lsRead() || { profiles: [], activeId: null };
+      state.activeId = id;
+      this.lsWrite(state);
+    }
+  };
+
+  /* ── profiles ─────────────────────────────────────────────────────
+     A profile is who is playing, not an account: no password, no server.
+     Several people share a device; each keeps their own bird and record. */
+  const RECENT_MAX = 30;        // runs kept for the history chart
+  const MAX_NAME = 12;
+
+  function newProfile(name) {
+    return {
+      id: 'p' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36),
+      name: (name || 'Player').slice(0, MAX_NAME),
+      skin: 'classic',
+      hat: 'none',
+      trail: 'none',
+      world: 'meadow',
+      bg: 'cycle',           // 'cycle', or the index of a phase to hold
+      haptics: false,
+      music: false,
+      assist: false,
+      coins: 0,
+      xp: 0,
+      feathers: [],
+      owned: [],
+      granted: false,        // back-pay for play from before the shop existed
+      taught: false,         // has this player finished a run yet?
+      best: 0,
+      created: Date.now(),
+      stats: { games: 0, pipes: 0, longest: 0, powers: 0, roosts: 0,
+               bronze: 0, silver: 0, gold: 0, platinum: 0, recent: [] }
+    };
+  }
+
+  // Tolerate anything: imported files and older records may be partial.
+  function sane(p) {
+    const d = newProfile(p && p.name);
+    if (!p || typeof p !== 'object') return d;
+    const st = p.stats && typeof p.stats === 'object' ? p.stats : {};
+    const num = (v, f) => (typeof v === 'number' && isFinite(v) && v >= 0 ? Math.floor(v) : f);
+    return {
+      id: typeof p.id === 'string' && p.id ? p.id : d.id,
+      name: (typeof p.name === 'string' && p.name.trim() ? p.name.trim() : d.name).slice(0, MAX_NAME),
+      skin: typeof p.skin === 'string' ? p.skin : 'classic',
+      hat: typeof p.hat === 'string' ? p.hat : 'none',
+      trail: typeof p.trail === 'string' ? p.trail : 'none',
+      world: typeof p.world === 'string' ? p.world : 'meadow',
+      bg: (typeof p.bg === 'number' && p.bg >= 0) || p.bg === 'cycle' ? p.bg : 'cycle',
+      haptics: p.haptics === true,
+      music: p.music === true,
+      assist: p.assist === true,
+      coins: num(p.coins, 0),
+      xp: num(p.xp, 0),
+      feathers: Array.isArray(p.feathers) ? p.feathers.filter(x => typeof x === 'string') : [],
+      owned: Array.isArray(p.owned) ? p.owned.filter(x => typeof x === 'string') : [],
+      granted: p.granted === true,
+      taught: p.taught === true,
+      best: num(p.best, 0),
+      created: num(p.created, d.created),
+      stats: {
+        games: num(st.games, 0), pipes: num(st.pipes, 0), longest: num(st.longest, 0),
+        powers: num(st.powers, 0), roosts: num(st.roosts, 0),
+        bronze: num(st.bronze, 0), silver: num(st.silver, 0),
+        gold: num(st.gold, 0), platinum: num(st.platinum, 0),
+        // The only stat that is not a running total: the last few scores,
+        // kept so the run history has something to draw.
+        recent: Array.isArray(st.recent)
+          ? st.recent.filter(n => Number.isFinite(n)).map(n => Math.max(0, Math.floor(n))).slice(-RECENT_MAX)
+          : []
+      }
+    };
+  }
+
+  /* ── coins ────────────────────────────────────────────────────────
+     Earned only by playing. There is no real money here and no server, so
+     a player editing their own save cheats nobody but themselves. */
+  const COIN_PIPE = 1, COIN_POWER = 2;
+  const MEDAL_BONUS = { bronze: 5, silver: 15, gold: 30, platinum: 60 };
+
+  /* ── XP and levels ────────────────────────────────────────────────
+     XP is deliberately not a second coin counter. Coins reward volume —
+     a coin a pipe, so a long grind pays. XP rewards depth and
+     improvement: how far you got, and whether you beat yourself. */
+  function runXp(score, medal, beatBest) {
+    const base = score + (medal ? MEDAL_BONUS[medal] : 0);
+    return Math.max(0, Math.round(base * (beatBest ? 2 : 1)));
+  }
+
+  // Cumulative XP to reach level n. Stretches as it climbs, so early
+  // levels arrive quickly and later ones mean something.
+  function xpForLevel(n) {
+    if (n <= 1) return 0;
+    return Math.round(40 * Math.pow(n - 1, 1.55));
+  }
+
+  function levelFor(xp) {
+    let n = 1;
+    while (n < 200 && xp >= xpForLevel(n + 1)) n++;
+    return n;
+  }
+
+  // How far through the current level, 0..1 — for the bar on screen.
+  function levelProgress(xp) {
+    const n = levelFor(xp);
+    const from = xpForLevel(n), to = xpForLevel(n + 1);
+    return to === from ? 1 : clamp((xp - from) / (to - from), 0, 1);
+  }
+
+  /* Rounding happens once per run, not once per award. A pipe pays 1, so
+     rounding each award on its own threw away every multiplier below 1.5 —
+     Gilded's 1.35 paid exactly what Classic paid, while Gilded plus Thrift
+     crossed the cliff at 1.512 and abruptly paid double. Carrying the
+     fraction makes every multiplier bite in the direction its card claims,
+     including the downside ones. */
+  function earn(n) {
+    if (!profile || n <= 0) return;
+    G.coinFrac += n * G.coinMul;
+    // Twenty pipes at 0.9 accumulates to 17.999999999999996, which floors
+    // to 17 and quietly loses a coin. The epsilon costs nothing and keeps
+    // the payout equal to the arithmetic a player would do on paper.
+    const paid = Math.floor(G.coinFrac + 1e-9);
+    if (paid <= 0) return;
+    G.coinFrac -= paid;
+    profile.coins += paid;
+    G.runCoins += paid;
+  }
+
+  // Play that happened before the shop existed still counts.
+  function backPay(p) {
+    if (p.granted) return 0;
+    let n = p.stats.pipes * COIN_PIPE + p.stats.powers * COIN_POWER;
+    let xp = p.best;
+    for (const tier of Object.keys(MEDAL_BONUS)) {
+      n += p.stats[tier] * MEDAL_BONUS[tier];
+      xp += p.stats[tier] * MEDAL_BONUS[tier];
+    }
+    p.coins += n;
+    p.xp += xp;
+    p.granted = true;
+    return n;
+  }
+
+  /* Three unlock axes, one predicate each. `need` is a best *score*,
+     `lvl` is a *level* — perks used to borrow `need` for their level
+     threshold, which meant a perk card was gated on a score it had
+     nothing to do with. An assist player never sets a best score by
+     design, so they could reach level 20 and find every perk locked. */
+  const earned = item => !!item && (item.need != null || item.lvl != null);
+
+  function owns(item) {
+    if (!item || !item.id) return false;
+    if (item.cost === 0 || earned(item)) return true;   // free, or earned rather than bought
+    return !!profile && profile.owned.indexOf(keyOf(item)) >= 0;
+  }
+
+  // Score-gated birds stay on their thresholds, perks on theirs; the rest is bought.
+  const available = item =>
+    item.lvl != null ? levelFor(profile ? profile.xp || 0 : 0) >= item.lvl
+      : item.need != null ? G.best >= item.need
+        : owns(item);
+
+  function buy(item) {
+    if (!profile || !item || owns(item) || earned(item)) return false;
+    if (profile.coins < item.cost) return false;
+    profile.coins -= item.cost;
+    profile.owned.push(keyOf(item));
+    saveProfile();
+    return true;
+  }
+
+  let profiles = [];
+  let profile = null;
+  let persisted = false;
+  let persistAsked = false;
+
+  // Written immediately, not debounced: saves happen at the end of a run
+  // or when a bird is picked — rare events, and exactly the moments a
+  // player is most likely to close the tab. A debounce here would quietly
+  // drop the run someone just finished.
+  function saveProfile() {
+    if (!profile) return Promise.resolve();
+    return vault.putProfile(JSON.parse(JSON.stringify(profile)));
+  }
+
+  function applyProfile() {
+    if (!profile) return;
+    G.best = profile.best;
+    G.skin = SKINS.find(s => s.id === profile.skin) || SKINS[0];
+    G.hat = byId(HATS, profile.hat);
+    G.trail = byId(TRAILS, profile.trail);
+    G.world = byId(WORLDS, profile.world);
+    G.bg = profile.bg;
+    // A world holding a phase that no longer exists falls back to cycling.
+    if (typeof G.bg === 'number' && G.bg >= phaseList().length) G.bg = 'cycle';
+  }
+
+  /* Durable storage is not the default: browsers evict under pressure and
+     iOS drops site data after about a week of no visits. Ask, then tell
+     the player the truth about the answer. */
+  async function askPersist() {
+    if (persistAsked) return persisted;
+    persistAsked = true;
+    try {
+      if (navigator.storage && navigator.storage.persisted) {
+        persisted = await navigator.storage.persisted();
+        if (!persisted && navigator.storage.persist) persisted = await navigator.storage.persist();
+      }
+    } catch (e) { persisted = false; }
+    updateStorageNote();
+    return persisted;
+  }
+
+  /* ── skins: pure palette swaps of one pixel grid ────────────────── */
+  /* ── traits ───────────────────────────────────────────────────────
+     A bird may change the bird. It may never change the world. Gravity,
+     flap, terminal velocity, hitbox, power-up duration, shield and the
+     coin/XP multipliers are properties of the thing you are flying. Pipe
+     gap and scroll speed are world generation — a bird that touched those
+     would hand two players different worlds on the same seed, and the
+     daily challenge and ghost replay both depend on that not happening.
+
+     Which direction is an improvement, so the sidegrade test can check
+     the promise rather than trusting the labels. */
+  const TRAIT_DIRS = { gravity: -1, maxVy: -1, hit: -1, flap: 1, power: 1, coin: 1, xp: 1, shieldHits: 1 };
+
+  const SKINS = [
+    { id: 'classic', name: 'Classic', need: 0, traits: {}, baseline: 'Baseline — the bird every other is measured against',
+      p: { O: '#302010', B: '#f8d840', L: '#fbf0b8', W: '#e8ac1c', E: '#ffffff', P: '#2a1c10', K: '#f2762a', S: '#c9531a' } },
+    { id: 'sky', name: 'Bluebird', need: 5, traits: { gravity: 0.92, flap: 0.93 }, up: 'Floats', down: 'Weaker flap',
+      p: { O: '#132741', B: '#4fb6f0', L: '#dff1ff', W: '#2b86c9', E: '#ffffff', P: '#10202f', K: '#ffb03a', S: '#d1811d' } },
+    { id: 'ember', name: 'Ember', need: 15, traits: { flap: 1.09, gravity: 1.08 }, up: 'Punchy flap', down: 'Falls heavy',
+      p: { O: '#3d1006', B: '#f0532c', L: '#ffd08a', W: '#c22f18', E: '#fff2d0', P: '#3d1006', K: '#ffd23f', S: '#d19a1a' } },
+    { id: 'ghost', name: 'Ghost', need: 25, traits: { hit: 0.86, maxVy: 1.15 }, up: 'Slips through gaps', down: 'Dives fast',
+      p: { O: '#8fa7c4', B: '#e9f2ff', L: '#ffffff', W: '#c3d6ee', E: '#ffffff', P: '#4a5b74', K: '#b9c9e0', S: '#93a7c2' }, alpha: 0.72 },
+    { id: 'circuit', name: 'Circuit', need: 40, traits: { power: 1.4, hit: 1.1 }, up: 'Power-ups last longer', down: 'Broad wings',
+      p: { O: '#04150f', B: '#1d3b30', L: '#3ef2a0', W: '#12634a', E: '#3ef2a0', P: '#04150f', K: '#8affd0', S: '#35b98d' } },
+
+    /* Everything below is bought with coins. The five above stay on score
+       thresholds — they were earned before the shop existed, and putting a
+       price on them afterwards would take them back. */
+    { id: 'mint', name: 'Mint', cost: 40, traits: { hit: 0.9, coin: 0.9 }, up: 'Nimble', down: 'Earns less',
+      p: { O: '#123b32', B: '#7fe0c0', L: '#e6fff7', W: '#43b596', E: '#ffffff', P: '#123b32', K: '#ffd66b', S: '#d9a63f' } },
+    { id: 'plum', name: 'Plum', cost: 55, traits: { maxVy: 0.86, flap: 0.94 }, up: 'Sinks slowly', down: 'Weaker flap',
+      p: { O: '#2c1030', B: '#a65cd6', L: '#f0d6ff', W: '#7a3fa8', E: '#ffffff', P: '#2c1030', K: '#ffc24d', S: '#cf8f1f' } },
+    { id: 'coal', name: 'Coal', cost: 70, traits: { shieldHits: 2, gravity: 1.12 }, up: 'Shields take two hits', down: 'Heavy',
+      p: { O: '#0a0a0c', B: '#3b3d46', L: '#8b8f9c', W: '#26282f', E: '#ff5b4a', P: '#0a0a0c', K: '#c9ccd6', S: '#8b8f9c' } },
+    { id: 'candy', name: 'Candy', cost: 85, traits: { coin: 1.2, hit: 1.12 }, up: 'Earns more', down: 'Broad wings',
+      p: { O: '#4a1030', B: '#ff9ec4', L: '#fff0f6', W: '#e8628f', E: '#ffffff', P: '#4a1030', K: '#8fe3ff', S: '#4fb0d8' } },
+    { id: 'gilded', name: 'Gilded', cost: 120, traits: { coin: 1.35, gravity: 1.1 }, up: 'Earns much more', down: 'Heavy',
+      p: { O: '#4a3406', B: '#f5c33b', L: '#fff3c4', W: '#c99114', E: '#fffdf2', P: '#4a3406', K: '#fff3c4', S: '#c99114' } },
+    { id: 'abyss', name: 'Abyss', cost: 150, traits: { maxVy: 0.8, power: 0.75 }, up: 'Drifts down gently', down: 'Short power-ups',
+      p: { O: '#01050e', B: '#10254a', L: '#4fd8ff', W: '#071634', E: '#4fd8ff', P: '#01050e', K: '#2b7fb8', S: '#155578' } },
+    { id: 'prism', name: 'Prism', cost: 200, shimmer: true, traits: { xp: 1.3, flap: 0.95 }, up: 'Learns faster', down: 'Weaker flap',
+      p: { O: '#1a1030', B: '#8fd8ff', L: '#ffe6ff', W: '#b98fff', E: '#ffffff', P: '#1a1030', K: '#ffd36b', S: '#d8a03f' } }
+  ];
+
+  /* ── hats ─────────────────────────────────────────────────────────
+     An 11 × 6 pixel grid parked on the bird's head, drawn inside the same
+     translate/rotate so it leans with the dive. Independent of which bird
+     is equipped, so the combinations multiply.
+     . transparent · O outline · A main · B accent  */
+  const HAT_W = 11, HAT_H = 6;
+  const HATS = [
+    { id: 'none', name: 'Bare head', cost: 0, art: null },
+    { id: 'cap', name: 'Ball Cap', cost: 45,
+      c: { O: '#16233d', A: '#3f7fd6', B: '#2b5da3' },
+      art: ['...OOOOO...', '..OAAAAAO..', '.OAAAAAAAO.', 'OAAAAAAAAAO', 'OBBBBBBBBBO', '.OOOOOOOOO.'] },
+    { id: 'party', name: 'Party Hat', cost: 60,
+      c: { O: '#3d1030', A: '#ff6fae', B: '#ffe066' },
+      art: ['.....B.....', '....OAO....', '...OABAO...', '..OAAAAAO..', '.OAABAAAAO.', 'OOOOOOOOOOO'] },
+    { id: 'crown', name: 'Crown', cost: 110,
+      c: { O: '#4a3406', A: '#f7d045', B: '#fff3c4' },
+      art: ['O.O.....O.O', 'OAOAO.OAOAO', 'OAAAOOOAAAO', 'OAABAAABAAO', 'OAAAAAAAAAO', 'OOOOOOOOOOO'] },
+    { id: 'halo', name: 'Halo', cost: 90, float: 3,
+      c: { O: '#c9a227', A: '#ffe9a8', B: '#fff8dc' },
+      art: ['..OOOOOOO..', '.OAAAAAAAO.', 'OAABBBBBAAO', 'OAAOOOOOAAO', '.OAAAAAAAO.', '..OOOOOOO..'] },
+    { id: 'horns', name: 'Horns', cost: 130,
+      c: { O: '#2a0806', A: '#e8452c', B: '#ffb199' },
+      art: ['OO.......OO', 'OAO.....OAO', 'OABO...OBAO', '.OAO...OAO.', '..OAOOOAO..', '...OOOOO...'] },
+    { id: 'topper', name: 'Top Hat', cost: 160,
+      c: { O: '#080a10', A: '#23262f', B: '#c0392b' },
+      art: ['..OOOOOOO..', '..OAAAAAO..', '..OAAAAAO..', '..OBBBBBO..', 'OOOAAAAAOOO', 'OOOOOOOOOOO'] }
+  ];
+
+  /* ── trails ───────────────────────────────────────────────────────
+     Emitters, not sprites. Each spawns particles behind the bird while
+     playing; they are drawn before the bird so they sit behind it. */
+  const TRAILS = [
+    { id: 'none', name: 'No trail', cost: 0 },
+    { id: 'spark', name: 'Sparks', cost: 60, every: 3, life: 22, size: 2, drift: -0.9, rise: -0.05,
+      colors: ['#ffe9a8', '#ffd257', '#ffffff'] },
+    { id: 'bubble', name: 'Bubbles', cost: 75, every: 5, life: 34, size: 3, drift: -0.5, rise: -0.16,
+      colors: ['#bfeeff', '#7fd8ff', '#ffffff'] },
+    { id: 'ember', name: 'Embers', cost: 95, every: 2, life: 20, size: 2, drift: -1.2, rise: -0.09,
+      colors: ['#ff8a3d', '#ff4f2b', '#ffd06b'] },
+    { id: 'frost', name: 'Frost', cost: 110, every: 3, life: 30, size: 2, drift: -0.7, rise: 0.05,
+      colors: ['#dff4ff', '#a9dcff', '#6fb8e8'] },
+    { id: 'rainbow', name: 'Rainbow', cost: 150, every: 2, life: 28, size: 3, drift: -0.8, rise: -0.02,
+      colors: ['#ff5f5f', '#ffb03a', '#ffe066', '#5ad46f', '#4fb6f0', '#a65cd6'] }
+  ];
+
+  /* ── worlds ───────────────────────────────────────────────────────
+     Repaints the pipes, and optionally replaces the day/night cycle with
+     its own palette list. `phases: null` keeps the default cycle. */
+  const PIPE_DEFAULT = { body: '#63c53c', light: '#9de86f', dark: '#2f7a24', edge: '#1d4a18' };
+
+  /* Every world carries its own list of times of day, so a bought world is
+     at least as alive as the free one. `phases: null` means "use the
+     default day → sunset → night → dawn cycle". */
+  const WORLDS = [
+    { id: 'meadow', name: 'Meadow', cost: 0, pipes: PIPE_DEFAULT, phases: null,
+      phaseNames: ['Day', 'Sunset', 'Night', 'Dawn'] },
+
+    { id: 'sunset', name: 'Endless Sunset', cost: 180,
+      pipes: { body: '#e07a3c', light: '#ffb072', dark: '#8f4318', edge: '#5c2a0e' },
+      phaseNames: ['Golden', 'Amber', 'Afterglow'],
+      phases: [
+        { sky: ['#f2a05a', '#ffdfae'], cloud: '#fff0dc', city: '#b3706a', dirt: '#dcc38c', grass: '#a89042', star: 0, sun: '#fff3c8' },
+        { sky: ['#e8724a', '#ffcf8f'], cloud: '#ffe3cd', city: '#a25f63', dirt: '#d5b880', grass: '#9c8639', star: 0.1, sun: '#ffe9a8' },
+        { sky: ['#a8446a', '#ff9a72'], cloud: '#ffcbb4', city: '#6e3a55', dirt: '#b99a70', grass: '#7d6a33', star: 0.35, sun: '#ffc98a' }
+      ] },
+
+    { id: 'mono', name: 'Monochrome', cost: 220,
+      pipes: { body: '#8b8f9c', light: '#c9ccd6', dark: '#4a4d57', edge: '#26282f' },
+      phaseNames: ['Overcast', 'Bright', 'Dusk'],
+      phases: [
+        { sky: ['#6f7481', '#c2c6d0'], cloud: '#e8eaef', city: '#575b66', dirt: '#b9bcc4', grass: '#7d8189', star: 0, sun: '#f2f3f6' },
+        { sky: ['#9ba0ad', '#eceef2'], cloud: '#ffffff', city: '#7b8090', dirt: '#d6d8de', grass: '#9ba0a8', star: 0, sun: '#ffffff' },
+        { sky: ['#2f323b', '#6d7280'], cloud: '#878c99', city: '#1e2128', dirt: '#6f727a', grass: '#4a4d57', star: 0.7, sun: '#c9ccd6' }
+      ] },
+
+    { id: 'neon', name: 'Neon Grid', cost: 260,
+      pipes: { body: '#12345c', light: '#3ef2ff', dark: '#0a1c33', edge: '#04101f' },
+      phaseNames: ['Dusk', 'Midnight', 'Signal'],
+      phases: [
+        { sky: ['#3a0a5c', '#7a1f8a'], cloud: '#8a3aa8', city: '#2a0740', dirt: '#3a1a52', grass: '#ff2fb9', star: 0.4, sun: '#ff7ad9' },
+        { sky: ['#12002e', '#3d0a5c'], cloud: '#5a1a8a', city: '#1d0640', dirt: '#2a1148', grass: '#ff2fb9', star: 0.9, sun: '#ff2fb9' },
+        { sky: ['#020a1e', '#0d2f5c'], cloud: '#12406e', city: '#04101f', dirt: '#0d2340', grass: '#3ef2ff', star: 1, sun: '#3ef2ff' }
+      ] },
+
+    { id: 'sakura', name: 'Sakura', cost: 300,
+      pipes: { body: '#d4738f', light: '#ffb3c7', dark: '#8f3f57', edge: '#5c2434' },
+      phaseNames: ['Morning', 'Blossom', 'Evening'],
+      phases: [
+        { sky: ['#ffe6ef', '#fff8fa'], cloud: '#ffffff', city: '#e0b6c4', dirt: '#efe0d2', grass: '#d4a0b4', star: 0, sun: '#fffaf0' },
+        { sky: ['#ffd3e2', '#fff0f4'], cloud: '#ffffff', city: '#d9a3b6', dirt: '#e8d5c4', grass: '#c98fa6', star: 0, sun: '#fff6da' },
+        { sky: ['#8f6a9c', '#ffb8c8'], cloud: '#f0d2e0', city: '#5f4570', dirt: '#c4a894', grass: '#9c6f86', star: 0.5, sun: '#ffd9c0' }
+      ] }
+  ];
+
+  /* ── pipe formations ──────────────────────────────────────────────
+     Every gap used to be an independent random number inside a drift
+     bound: fair, and monotonous. A formation is a short authored sequence
+     of gap-centre offsets, so the world reads as designed rather than
+     generated. `steps` are offsets from the previous gap; `gapMul`
+     narrows the opening for that formation only.
+
+     Drift carries the heaviest weight, so a run still feels like
+     DreyBird rather than an obstacle course. */
+  const PATTERNS = [
+    { id: 'drift',    name: 'Drift',    weight: 34, from: 0,  steps: [null] },
+    { id: 'ascent',   name: 'Ascent',   weight: 12, from: 5,  steps: [-36, -36, -36] },
+    { id: 'descent',  name: 'Descent',  weight: 12, from: 5,  steps: [36, 36, 36] },
+    { id: 'valley',   name: 'Valley',   weight: 10, from: 12, steps: [44, 44, -44, -44] },
+    { id: 'zigzag',   name: 'Zigzag',   weight: 11, from: 14, steps: [-48, 48, -48, 48] },
+    { id: 'corridor', name: 'Corridor', weight: 9,  from: 20, steps: [0, 0, 0, 0], gapMul: 0.88 }
+  ];
+  const CALM_PIPES = 5;        // the opening is always plain drift
+  const GAP_FLOOR = 84;        // no formation may narrow past this
+
+  /* ── hazards ──────────────────────────────────────────────────────
+     Scheduled when a pipe spawns, which is off the right edge, so every
+     hazard arrives with natural warning. Intensity ramps on pipe index
+     rather than score: the Nth pipe is the Nth pipe for everyone on a
+     seed, whereas score depends on how well you are playing. */
+  const HAZARD_START = 8;      // pipes before anything can happen
+  const HAZARD_MAX = 0.34;
+  const MOVE_AMP = 26, MOVE_SPD = 0.028;
+  const GUST_LEAD = 46;        // ticks of telegraph before a gust bites
+  const GUST_DUR = 70, GUST_FORCE = 0.17;
+  const FOG_DUR = 150;
+
+  /* ── portals ──────────────────────────────────────────────────────
+     A rare pipe with a wider opening and a door hanging in the middle
+     of it. It pulls you toward the door; flying into the door drops you
+     into the Roost. The pull only ever draws you toward the gap centre,
+     so it cannot push you into the pipe body — safe by construction
+     rather than by tuning. Slip past the door and the pipe scores like
+     any other: taking it is a choice, not something done to you. */
+  const PORTAL_START = 15;      // no portal before this pipe index
+  const PORTAL_RAMP = 0.0015;   // chance gained per pipe after that
+  const PORTAL_MAX = 0.022;     // ceiling on the per-pipe chance
+  const PORTAL_H = 176;         // the door's opening, trimmed to fit by `room`
+  const RING_R = 16;            // the door itself: a 32px target in a 176px gap
+
+  /* How far ahead of the door the pull reaches, in PIXELS — and the number
+     matters more than it looks. Pipes stand SPACING apart with PIPE_W of
+     that taken by the pipe itself, so there are only 104px of clear air
+     between one pair and the next. A pull reaching 150px would take hold
+     while the bird was still threading the PREVIOUS pipe and could drag it
+     into that pipe's lip: a death the player did not earn, which is the one
+     thing this mechanic must never cause.
+
+     The bound: the previous pipe's right edge sits at p.x - 104, and the
+     bird's box starts at 64 - hitW/2, which is 53.9 for the widest bird in
+     the roster. Requiring p.x - 104 < 53.9 gives p.x < 157.9, so the pull
+     may begin no further out than 93.9px. Being in pixels it also holds
+     under assist, where the slower world merely stretches the window in
+     ticks without ever moving it in space. */
+  const PULL_RANGE = 88;
+  const PULL_RAMP = 40;         // ticks of fade-in, so it never snatches
+  const PULL_K = 0.010;         // spring toward the gap centre
+  const PULL_D = 0.045;         // damping, so the approach settles
+  const PULL_MAX = 0.20;        // ceiling; G.pullMax derives the real one per run
+
+  const ROOST_TICKS = 480;      // hard cap on a visit, so nothing can stall
+  const ROOST_SPEED = 1.8;     // the Roost drifts slower than the world
+  const ROOST_COINS = 12;       // coins on the line you fly
+  const ROOST_COIN = 2;         // each, through earn(), so coinMul applies
+  const ROOST_PHASE = { sky0: '#1a0b3d', sky1: '#4a2378', cloud: '#6b3fa0',
+                        city: '#150835', dirt: '#2a1550', grass: '#7f5ce0',
+                        sun: '#ffe9ff', star: 1 };
+
+  /* ── feathers ─────────────────────────────────────────────────────
+     Mild global perks, unlocked by level and equipped into slots. Like
+     traits, strictly bird-side. Prestige will later make some permanent,
+     which is why they exist as their own list rather than being folded
+     into the birds. */
+  const FEATHERS = [
+    { id: 'thrift',  name: 'Thrift',   lvl: 4,  hue: ['#f5c33b', '#c99114'], traits: { coin: 1.12 },   blurb: 'Every pipe pays a little more' },
+    { id: 'study',   name: 'Study',    lvl: 6,  hue: ['#8fd8ff', '#3f7fd6'], traits: { xp: 1.15 },     blurb: 'Runs teach you faster' },
+    { id: 'lift',    name: 'Updraft',  lvl: 9,  hue: ['#cdefff', '#7fb8d8'], traits: { gravity: 0.95 }, blurb: 'The air holds you up a touch' },
+    { id: 'slim',    name: 'Slipstream', lvl: 12, hue: ['#a6e9b4', '#43b596'], traits: { hit: 0.94 },  blurb: 'A slightly finer profile' },
+    { id: 'charge',  name: 'Reservoir', lvl: 16, hue: ['#c9a0ff', '#8a5ad0'], traits: { power: 1.25 }, blurb: 'Power-ups run longer' },
+    { id: 'plate',   name: 'Plating',  lvl: 20, hue: ['#e0e6ee', '#8b8f9c'], traits: { shieldHits: 2 }, blurb: 'Shields take an extra hit' }
+  ];
+  /* Slots open earlier than they used to. The third sat at 30 — roughly
+     212 runs for a middling player — and Plating unlocked at 26, so the
+     most interesting perk was gated behind the grind rather than being
+     part of it. Every perk now unlocks at or before a slot that can hold
+     it, which a test enforces. */
+  const SLOT_LEVELS = [4, 12, 22];        // level at which each slot opens
+  const slotsAt = lvl => SLOT_LEVELS.filter(n => lvl >= n).length;
+
+  /* Everything the bird is, combined: its innate traits plus whatever
+     feathers are equipped. Multipliers multiply; shieldHits takes the
+     best rather than stacking, so two sources cannot make you invincible. */
+  function traitsNow() {
+    const out = { gravity: 1, flap: 1, maxVy: 1, hit: 1, power: 1, coin: 1, xp: 1, shieldHits: 1 };
+    const apply = tr => {
+      if (!tr) return;
+      for (const k of Object.keys(out)) {
+        if (tr[k] == null) continue;
+        if (k === 'shieldHits') out[k] = Math.max(out[k], tr[k]);
+        else out[k] *= tr[k];
+      }
+    };
+    apply(G.skin && G.skin.traits);
+    for (const f of equippedFeathers()) apply(f.traits);
+    return out;
+  }
+
+  function equippedFeathers() {
+    if (!profile) return [];
+    const lvl = levelFor(profile.xp || 0);
+    return (profile.feathers || [])
+      .map(id => FEATHERS.find(f => f.id === id))
+      .filter(f => f && lvl >= f.lvl)
+      .slice(0, slotsAt(lvl));
+  }
+
+  const byId = (list, id) => list.find(x => x.id === id) || list[0];
+
+  /* Ownership is keyed by kind:id, not id alone. Ids only have to be
+     unique within their own list — there is a bird called Ember and a
+     trail called Embers, and a flat id list would have let buying one
+     silently grant the other. */
+  for (const [kind, list] of [['bird', SKINS], ['hat', HATS], ['trail', TRAILS],
+                              ['world', WORLDS], ['feather', FEATHERS]]) {
+    for (const item of list) item.kind = kind;
+  }
+  const keyOf = item => item.kind + ':' + item.id;
+
+  // 17 × 12 cells, 2 px each → the original's 34 × 24 bird.
+  // O outline · B body · L belly · W wing · E eye · P pupil · K beak
+  const BIRD_ART = [
+    '.....OOOOOO......',
+    '...OOBBBBBBBOO...',
+    '..OBBBBBBBEEEEO..',
+    '.OBBBBBBBBEPPEO..',
+    '.OBWWWWWBBEPPEO..',
+    'OBWWWWWWWBEEEEOKK',
+    'OBWWWWWWWBBBBOKKK',
+    'OBWWWWWBBLLLLLKKS',
+    '.OBWWWBBBLLLLLLS.',
+    '..OBBBBLLLLLLLLO.',
+    '...OOBBBLLLLLLOO.',
+    '.....OOOOOOOOO...'
+  ];
+  const ART_W = 17, ART_H = 12, CELL = 2;
+
+  /* ── sky phases: a slow day → sunset → night → dawn cycle ───────── */
+  const PHASES = [
+    { sky: ['#3fb3dd', '#a9e4f2'], cloud: '#ffffff', city: '#6fc9b6', dirt: '#ddd694', grass: '#79bd3f', star: 0.0, sun: '#fff6c8' },
+    { sky: ['#e8724a', '#ffcf8f'], cloud: '#ffe3cd', city: '#a25f63', dirt: '#d5b880', grass: '#9c8639', star: 0.1, sun: '#ffe9a8' },
+    { sky: ['#0c1638', '#243063'], cloud: '#39447a', city: '#161e46', dirt: '#87805a', grass: '#3d5730', star: 1.0, sun: '#dfe6ff' },
+    { sky: ['#5d5aa2', '#f0a79c'], cloud: '#e3cfdd', city: '#565080', dirt: '#c6ba8d', grass: '#688c45', star: 0.28, sun: '#ffd9c0' }
+  ];
+  const PHASE_LEN = 1750;   // px of scroll per phase
+
+  /* ── tiny colour helpers ────────────────────────────────────────── */
+  const hex2rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const mix = (a, b, t) => {
+    const A = hex2rgb(a), B = hex2rgb(b);
+    return 'rgb(' + Math.round(A[0] + (B[0] - A[0]) * t) + ',' +
+                    Math.round(A[1] + (B[1] - A[1]) * t) + ',' +
+                    Math.round(A[2] + (B[2] - A[2]) * t) + ')';
+  };
+  const clamp = (v, lo, hi) => v < lo ? lo : v > hi ? hi : v;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const smooth = t => t * t * (3 - 2 * t);
+
+  /* ── audio: synthesised on the fly, unlocked by the first tap ───── */
+  const audio = {
+    ctx: null,
+    muted: store.get('muted', false),
+    ensure() {
+      if (this.ctx || this.muted) return;
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      try { this.ctx = new AC(); } catch (e) { this.ctx = null; }
+    },
+    tone(type, f0, f1, dur, vol, delay) {
+      if (this.muted) return;
+      this.ensure();
+      const c = this.ctx;
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      const t0 = c.currentTime + (delay || 0);
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(f0, t0);
+      o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g).connect(c.destination);
+      o.start(t0);
+      o.stop(t0 + dur + 0.03);
+    },
+    flap()   { this.tone('square', 620, 300, 0.09, 0.05); },
+    score()  { this.tone('triangle', 880, 880, 0.07, 0.07); this.tone('triangle', 1320, 1320, 0.09, 0.06, 0.06); },
+    hit()    { this.tone('sawtooth', 260, 60, 0.16, 0.09); },
+    die()    { this.tone('sine', 520, 70, 0.42, 0.06, 0.08); },
+    power()  { this.tone('triangle', 660, 660, 0.07, 0.06); this.tone('triangle', 990, 990, 0.07, 0.06, 0.06); this.tone('triangle', 1480, 1480, 0.11, 0.05, 0.12); },
+    pop()    { this.tone('square', 320, 140, 0.14, 0.06); }
+  };
+
+  /* ── haptics ──────────────────────────────────────────────────────
+     Off by default. Android honours it; iOS ignores vibration entirely,
+     which the setting copy says rather than implying otherwise. Wrapped
+     because some browsers throw when it is called outside a gesture, and
+     a buzz must never be able to end a run. */
+  function buzz(pattern) {
+    if (!profile || !profile.haptics) return;
+    try { if (navigator.vibrate) navigator.vibrate(pattern); } catch (e) { /* not our problem */ }
+  }
+
+  /* ── music ────────────────────────────────────────────────────────
+     A slow pentatonic arpeggio over a soft bass, built from the same
+     oscillators as the sound effects. Pentatonic because every note in it
+     agrees with every other, so a loop cannot land on a sour interval.
+
+     Default OFF, with its own toggle. I wrote this without being able to
+     hear it, and unexpected music you did not ask for is worse than
+     silence you can switch out of. */
+  const SCALE = [0, 2, 4, 7, 9];                    // major pentatonic
+  const ROOTS = [220, 196, 246.94, 174.61];         // A3, G3, B3, F3
+  const STEP_MS = 260;
+
+  const music = {
+    on: false,
+    timer: 0,
+    step: 0,
+    gain: null,
+
+    start() {
+      if (this.timer || !this.on) return;
+      audio.ensure();
+      if (!audio.ctx) return;
+      this.gain = audio.ctx.createGain();
+      this.gain.gain.value = 0.05;                  // quiet: it sits under play
+      this.gain.connect(audio.ctx.destination);
+      this.step = 0;
+      this.timer = setInterval(() => this.beat(), STEP_MS);
+    },
+
+    stop() {
+      if (this.timer) clearInterval(this.timer);
+      this.timer = 0;
+      if (this.gain) { try { this.gain.disconnect(); } catch (e) { /* already gone */ } }
+      this.gain = null;
+    },
+
+    note(freq, dur, type, vol) {
+      const c = audio.ctx;
+      if (!c || !this.gain) return;
+      const t0 = c.currentTime;
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type;
+      o.frequency.setValueAtTime(freq, t0);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g).connect(this.gain);
+      o.start(t0);
+      o.stop(t0 + dur + 0.02);
+    },
+
+    beat() {
+      if (!this.on || audio.muted || !audio.ctx) return;
+      // The chord changes every eight steps, so the loop wanders rather
+      // than repeating a single bar forever.
+      const bar = Math.floor(this.step / 8) % ROOTS.length;
+      const root = ROOTS[bar];
+      const semis = SCALE[this.step % SCALE.length];
+      const up = Math.floor((this.step % 8) / SCALE.length);
+      this.note(root * Math.pow(2, (semis + up * 12) / 12), 0.22, 'triangle', 0.5);
+      if (this.step % 8 === 0) this.note(root / 2, 0.7, 'sine', 0.6);
+      this.step++;
+    },
+
+    set(v) {
+      this.on = v;
+      if (v) this.start(); else this.stop();
+    }
+  };
+
+  /* ── world state ────────────────────────────────────────────────── */
+  const READY = 0, PLAYING = 1, DYING = 2, OVER = 3;
+
+  const bird = { x: BIRD_X, y: 240, py: 240, vy: 0, rot: 0, prot: 0, wing: 0 };
+  const pipes = [];
+  const powers = [];
+  const roostCoins = [];   // the Roost's line, alive only while you are in it
+  const puffs = [];
+  const trail = [];          // cosmetic only — never touched by collision
+
+  const G = {
+    state: READY,
+    score: 0,
+    best: 0,
+    newBest: false,
+    ticks: 0,
+    scroll: 0,        // ground / cycle scroll distance
+    cycle: 0,
+    flash: 0,
+    shake: 0,
+    overAt: 0,
+    shield: 0,
+    slow: 0,          // remaining slow-mo ticks
+    invuln: 0,
+    lastGap: 200,
+    runTicks: 0,
+    runCoins: 0,
+    coinFrac: 0,
+    runXp: 0,
+    levelUp: 0,
+    beatBest: false,
+    seed: 0,
+    portalAt: null,             // pipe index of this run's portal, if any
+    portalPipe: null,           // the live portal pipe, while one is on screen
+    forcePortalAt: -1,          // test hook only; -1 leaves placement to the seed
+    pullMax: PULL_MAX,          // derived per run; see startPlay
+    roost: null,                // the bonus room, while you are in it
+    rng: mulberry32(1),
+    rng2: mulberry32(2),
+    maxVy: MAX_VY,
+    hitW: HIT_W,
+    hitH: HIT_H,
+    puTicks: PU_TICKS,
+    shieldHits: 1,
+    coinMul: 1,
+    xpMul: 1,
+    paused: false,
+    hitStop: 0,
+    runAssist: false,
+    pipeIndex: 0,
+    pattern: null,
+    patStep: 0,
+    gust: null,
+    fog: null,
+    // Effective physics for the run in progress; set by startPlay().
+    gravity: GRAVITY,
+    flapV: FLAP_V,
+    gap: GAP,
+    speed: SPEED,
+    skin: SKINS[0],
+    hat: HATS[0],
+    trail: TRAILS[0],
+    world: WORLDS[0],
+    bg: 'cycle'
+  };
+
+  const stars = [];
+  for (let i = 0; i < 46; i++) {
+    stars.push({ x: (i * 61.8) % W, y: (i * 37.3) % (GY - 90), r: i % 5 === 0 ? 1.4 : 0.9, tw: (i % 7) / 7 });
+  }
+  const buildings = [];
+  for (let i = 0; i < 30; i++) {
+    buildings.push({ x: i * 38, w: 20 + (i * 13) % 16, h: 20 + (i * 29) % 34 });
+  }
+  const clouds = [];
+  for (let i = 0; i < 7; i++) {
+    clouds.push({ x: i * 92, y: 46 + (i * 53) % 150, s: 0.8 + (i % 3) * 0.35 });
+  }
+
+  /* ══════════════════ simulation ══════════════════ */
+
+  function resetWorld() {
+    pipes.length = 0;
+    powers.length = 0;
+    puffs.length = 0;
+    trail.length = 0;
+    bird.y = bird.py = 236;
+    bird.vy = 0;
+    bird.rot = bird.prot = 0;
+    G.score = 0;
+    G.newBest = false;
+    G.ticks = 0;
+    G.flash = 0;
+    G.shake = 0;
+    G.hitStop = 0;
+    G.shield = 0;
+    G.slow = 0;
+    G.invuln = 0;
+    G.lastGap = 200;
+    G.pipeIndex = 0;
+    G.pattern = null;
+    G.patStep = 0;
+    G.gust = null;
+    G.fog = null;
+    // Belt and braces with startPlay, and load-bearing: quitting from the
+    // pause sheet mid-Roost comes through here rather than through a run.
+    G.portalAt = null;
+    G.portalPipe = null;
+    G.roost = null;
+    roostCoins.length = 0;
+    G.state = READY;
+    syncStage();
+  }
+
+  /* Weighted pick from the seeded stream, always exactly one draw.
+
+     Formations unlock as the run goes on, gated on pipe index — the same
+     deterministic clock the hazards use. Without it a zigzag could land
+     on pipe six, which is why one autopilot seed was scoring 1: the
+     opening was gentle and then everything arrived at once. */
+  function pickPattern(r, idx) {
+    const open = PATTERNS.filter(p => idx >= p.from);
+    let total = 0;
+    for (const p of open) total += p.weight;
+    let n = r * total;
+    for (const pat of open) {
+      n -= pat.weight;
+      if (n <= 0) return pat;
+    }
+    return PATTERNS[0];
+  }
+
+  function spawnPipe(x) {
+    // Every draw for this pipe happens here, unconditionally and in a
+    // fixed order, before any state is consulted. Anything conditional
+    // would make the stream position depend on how the run is going.
+    const rPat = G.rng(), rDrift = G.rng();
+    const rHaz = G.rng(), rKindH = G.rng(), rAmp = G.rng(), rPhase = G.rng();
+    // The portal's own stream, drawn unconditionally for the same reason.
+    const rPortal = G.rng2(), rArc = G.rng2();
+
+    const idx = G.pipeIndex++;
+
+    /* At most one portal a run, and it is decided when the pipe spawns
+       rather than when you take it — otherwise whether a later pipe is a
+       portal would depend on how well you were flying, and the world would
+       stop being a pure function of the seed. */
+    const pChance = clamp((idx - PORTAL_START) * PORTAL_RAMP, 0, PORTAL_MAX);
+    const portal = G.portalAt == null && (idx === G.forcePortalAt || rPortal < pChance);
+    if (portal) G.portalAt = idx;
+
+    // Start, or continue, a formation.
+    if (idx < CALM_PIPES || !G.pattern || G.patStep >= G.pattern.steps.length) {
+      G.pattern = idx < CALM_PIPES ? PATTERNS[0] : pickPattern(rPat, idx);
+      G.patStep = 0;
+    }
+    const step = G.pattern.steps[G.patStep++];
+
+    let gap;
+    if (step === null) {
+      // Drift: the original behaviour, a random gap within reach.
+      const drift = 92;
+      const lo = Math.max(GAP_MIN, G.lastGap - drift);
+      const hi = Math.min(GAP_MAX, G.lastGap + drift);
+      gap = Math.round(lo + rDrift * (hi - lo));
+    } else {
+      gap = Math.round(G.lastGap + step);
+    }
+
+    const h = Math.max(GAP_FLOOR, Math.round(G.gap * (G.pattern.gapMul || 1)));
+
+    // A mover swings, so its gap must stay reachable at both extremes.
+    const chance = clamp((idx - HAZARD_START) * 0.022, 0, HAZARD_MAX) * (G.runAssist ? 0.5 : 1);
+    const hazard = rHaz < chance ? (rKindH < 0.42 ? 'mover' : rKindH < 0.74 ? 'gust' : 'fog') : null;
+    const amp = hazard === 'mover' ? Math.round(10 + rAmp * MOVE_AMP) : 0;
+
+    // Clamp with the swing and the gap height both accounted for, so no
+    // formation or hazard can produce a pipe you cannot fly through.
+    const margin = h / 2 + amp + 10;
+    gap = clamp(gap, margin, GY - margin);
+    G.lastGap = gap;
+
+    /* `h` stays exactly what it always was, because it is what the clamp
+       above and G.lastGap were computed from. The wider portal opening
+       rides alongside it as `open`, which is what collision and drawing
+       use — so widening a portal cannot shift any other pipe. */
+    /* Trimmed to the room the chosen centre leaves, so a portal near the
+       ground or the ceiling opens less rather than opening off the screen —
+       and never narrower than the pipe would have been anyway. */
+    const room = 2 * (Math.min(gap, GY - gap) - amp) - 20;
+    const open = portal ? clamp(PORTAL_H, h, Math.max(h, room)) : h;
+    const pipe = { x, px: x, gap, base: gap, h, open, scored: false, amp,
+                   phase: rPhase * Math.PI * 2, portal, arc: rArc, used: false };
+    pipes.push(pipe);
+    if (portal) G.portalPipe = pipe;
+
+    /* A portal keeps its mover, because `amp` feeds the reachability clamp
+       above and dropping it would move the gap — and every pipe after it.
+       Gust and fog are suppressed instead: they change nothing geometric,
+       and a crosswind fighting the pull would only muddy the read. */
+    if (hazard === 'gust' && !portal) {
+      // Scheduled ahead so the telegraph has time to appear.
+      G.gust = { at: G.ticks + GUST_LEAD, until: G.ticks + GUST_LEAD + GUST_DUR,
+                 force: (rPhase < 0.5 ? -1 : 1) * GUST_FORCE };
+    } else if (hazard === 'fog' && !portal) {
+      G.fog = { until: G.ticks + FOG_DUR, y: clamp(gap - 40, 40, GY - 140) };
+    }
+
+    // A power-up floats between this pipe and the next — never in the
+    // opening stretch, and only now and then.
+    //
+    // The four draws happen unconditionally, before the score is consulted.
+    // Drawing them inside the `if` would advance the stream by a different
+    // amount depending on how well someone was playing, so two people on
+    // the same daily seed would stop seeing the same pipes the moment one
+    // of them reached 4 points. The stream must depend on the seed alone.
+    const rChance = G.rng(), rY = G.rng(), rKind = G.rng(), rBob = G.rng();
+    void rDrift;   // consumed above only on a drift step; the draw is unconditional
+    if (G.score >= 4 && rChance < 0.24) {
+      powers.push({
+        x: x + PIPE_W / 2 + SPACING / 2,
+        px: x + PIPE_W / 2 + SPACING / 2,
+        y: clamp(gap + (rY * 40 - 20), 70, GY - 70),
+        kind: rKind < 0.5 ? 'shield' : 'slow',
+        got: false,
+        bob: rBob * Math.PI * 2
+      });
+    }
+  }
+
+  function startPlay(seed) {
+    G.state = PLAYING;
+    G.ticks = 0;
+    G.runTicks = 0;
+    G.runCoins = 0;
+    G.coinFrac = 0;
+    // A seed fully determines the pipes and power-ups of a run.
+    G.seed = seed == null ? randomSeed() : (seed >>> 0);
+    G.rng = mulberry32(G.seed);
+    /* A second stream, from the same seed. Portals draw from this one so
+       spawnPipe's ten-draw budget is untouched and every seed that existed
+       before portals did keeps generating the same pipes it always did. */
+    G.rng2 = mulberry32((G.seed ^ 0x9e3779b9) >>> 0);
+    G.portalAt = null;
+    G.portalPipe = null;
+    G.roost = null;
+    roostCoins.length = 0;
+    G.lastGap = 200;
+
+    // Physics are fixed for the whole run, here, once.
+    G.runAssist = !!(profile && profile.assist);
+    G.paused = false;
+    G.hitStop = 0;
+    G.pipeIndex = 0;
+    G.pattern = null;
+    G.patStep = 0;
+    G.gust = null;
+    G.fog = null;
+    // Traits and feathers are BIRD-side only. G.gap and G.speed below are
+    // world generation and are deliberately left untouched by them, so the
+    // same seed builds the same world whatever you are flying.
+    const t = traitsNow();
+    G.gravity = GRAVITY * (G.runAssist ? ASSIST.gravity : 1) * t.gravity;
+    G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1) * t.flap;
+    G.gap     = GAP     + (G.runAssist ? ASSIST.gap : 0);
+    G.speed   = SPEED   * (G.runAssist ? ASSIST.speed : 1);
+    /* Derived rather than fixed. The pull must never be strong enough to
+       hold the bird up on its own, or "do nothing and you sink" would stop
+       being true — and that is the property that makes a portal refusable.
+       Tying the ceiling to this run's own gravity keeps it true even for
+       the lightest loadout the game can assemble. */
+    G.pullMax = Math.min(PULL_MAX, G.gravity * 0.55);
+    G.maxVy   = MAX_VY * t.maxVy;
+    G.hitW    = HIT_W * t.hit;
+    G.hitH    = HIT_H * t.hit;
+    G.puTicks = Math.round(PU_TICKS * t.power);
+    G.shieldHits = Math.max(1, Math.round(t.shieldHits));
+    G.coinMul = t.coin;
+    G.xpMul   = t.xp;
+    trail.length = 0;
+    pipes.length = 0;
+    powers.length = 0;
+    spawnPipe(W + 40);
+    spawnPipe(W + 40 + SPACING);
+    spawnPipe(W + 40 + SPACING * 2);
+    syncStage();
+  }
+
+  function flap() {
+    bird.vy = G.flapV;
+    bird.wing = 9;
+    buzz(12);
+    audio.flap();
+  }
+
+  function die(fromPipe) {
+    G.state = DYING;
+    // A few frames of stillness at the moment of impact. Cheap, and it is
+    // most of what makes a collision feel like one.
+    G.hitStop = reduceMotion ? 0 : 7;
+    bird.vy = Math.min(bird.vy, -2.4);
+    G.flash = reduceMotion ? 0 : 1;
+    G.shake = reduceMotion ? 0 : 9;
+    audio.hit();
+    audio.die();
+    buzz([40, 30, 60]);
+    if (fromPipe) puff(bird.x + 6, bird.y, '#ffffff', 8);
+    syncStage();
+  }
+
+  function land() {
+    G.state = OVER;
+    G.overAt = G.ticks;
+    // An assist run is played on gentler physics, so it is not the same
+    // record. It still earns coins; it just does not set a best score,
+    // and the panel says so rather than withholding it silently.
+    G.beatBest = !G.runAssist && G.score > G.best;
+    if (G.beatBest) { G.best = G.score; G.newBest = true; buildSheet(); }
+    recordRun();
+    syncStage();
+  }
+
+  // One finished run, folded into whoever is playing.
+  function recordRun() {
+    if (!profile) return;
+    const st = profile.stats;
+    st.games++;
+    profile.taught = true;          // one finished run is the whole tutorial
+    st.longest = Math.max(st.longest, G.runTicks);
+    st.recent.push(G.score);
+    if (st.recent.length > RECENT_MAX) st.recent.splice(0, st.recent.length - RECENT_MAX);
+    if (!G.runAssist && G.score > profile.best) profile.best = G.score;
+    const m = medalFor(G.score);
+    const medal = m ? m.name.toLowerCase() : null;
+    if (medal) {
+      st[medal]++;
+      earn(MEDAL_BONUS[medal] || 0);
+    }
+
+    // XP rewards depth and improvement, where coins reward volume.
+    const before = levelFor(profile.xp);
+    G.runXp = Math.round(runXp(G.score, medal, G.beatBest) * G.xpMul);
+    profile.xp += G.runXp;
+    G.levelUp = levelFor(profile.xp) - before;
+
+    saveProfile();
+    buildPlayers();
+    refreshSaveButton();
+  }
+
+  function puff(x, y, color, n) {
+    if (reduceMotion) return;
+    for (let i = 0; i < n; i++) {
+      const a = (Math.PI * 2 * i) / n + Math.random();
+      puffs.push({ x, y, vx: Math.cos(a) * (0.8 + Math.random()), vy: Math.sin(a) * (0.8 + Math.random()), life: 24, color });
+    }
+  }
+
+  function hitsPipe(p) {
+    const bx = bird.x - G.hitW / 2, by = bird.y - G.hitH / 2;
+    if (bx + G.hitW < p.x || bx > p.x + PIPE_W) return false;
+    const h = p.open || p.h || G.gap;
+    return by < p.gap - h / 2 || by + G.hitH > p.gap + h / 2;
+  }
+
+  /* ── the Roost ────────────────────────────────────────────────────
+     Through the door is a place, not an effect. Entering SUSPENDS the run
+     rather than saving it: nothing ticks `pipes` or `powers` while
+     G.roost is set, so the world outside is not stored anywhere — it is
+     simply left alone, and resumes on the way out because it never
+     changed. The only thing borrowed is the bird, and that is handed back
+     exactly as it was. */
+  function enterRoost(p) {
+    p.used = true;
+    /* Freezing mid-flight would leave px lerping against a stale previous
+       x, and the whole suspended world would shiver a couple of pixels
+       every frame for the length of the visit. */
+    for (const q of pipes) q.px = q.x;
+    for (const q of powers) q.px = q.x;
+    bird.py = bird.y;
+    G.roost = { t: 0, y: bird.y, vy: bird.vy, rot: bird.rot, got: 0 };
+
+    /* The line comes from the portal's own draw rather than from G.rng2,
+       so entering consumes nothing from either stream — what the world
+       generates can never depend on whether the player went in. */
+    const r = mulberry32(((G.seed ^ 0x51ed270b) + Math.floor(p.arc * 0xffffff)) >>> 0);
+    const amp = 60 + r() * 60, phase = r() * Math.PI * 2, freq = 0.009 + r() * 0.007;
+    roostCoins.length = 0;
+    for (let i = 0; i < ROOST_COINS; i++) {
+      const x = 210 + i * 46;
+      roostCoins.push({ x, px: x, y: clamp(236 + Math.sin(x * freq + phase) * amp, 70, GY - 70),
+                        got: false });
+    }
+    if (profile) profile.stats.roosts++;
+    G.flash = reduceMotion ? 0 : 0.9;
+    audio.power();
+  }
+
+  function tickRoost() {
+    const R = G.roost;
+    R.t++;
+    // No ts here: a bonus room in slow motion is only a longer bonus room.
+    bird.vy = clamp(bird.vy + G.gravity, -20, G.maxVy);
+    bird.y += bird.vy;
+    // Nothing simulated reads these; they keep the sky alive so the room
+    // does not sit there statically painted.
+    G.scroll += ROOST_SPEED;
+    G.cycle += ROOST_SPEED;
+
+    for (const c of roostCoins) {
+      c.px = c.x;
+      c.x -= ROOST_SPEED;
+      if (c.got) continue;
+      // Forgiving here, unlike the door: this is a pickup, and there is
+      // nothing to lose by being generous with it.
+      if (Math.abs(c.x - bird.x) < 9 + G.hitW / 2 && Math.abs(c.y - bird.y) < 9 + G.hitH / 2) {
+        c.got = true;
+        R.got++;
+        earn(ROOST_COIN);
+        audio.score();
+        puff(c.x, c.y, '#ffe9a8', 6);
+      }
+    }
+
+    // The edges hold you rather than end you. die() is never reachable
+    // from in here, which is the whole promise of the place.
+    if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; bird.vy = Math.min(bird.vy, 0); }
+    else if (bird.y - G.hitH / 2 < 0) { bird.y = G.hitH / 2; bird.vy = 0; }
+
+    const target = bird.vy < 0 ? -0.42 : clamp(bird.vy * 0.13, -0.42, 1.5);
+    bird.rot += (target - bird.rot) * 0.18;
+
+    const last = roostCoins[roostCoins.length - 1];
+    // Two ways out, and ROOST_TICKS is the hard one: no layout, and no
+    // test harness, can leave a run parked in here.
+    if (R.t >= ROOST_TICKS || (last && last.x < -30)) exitRoost();
+  }
+
+  function exitRoost() {
+    const R = G.roost;
+    /* Put back exactly what was borrowed. Returning the bird to the height
+       it left at is what makes this an interlude rather than a teleport
+       into whatever happens to be waiting — and since it left from the
+       centre of the widest opening in the game, the spot is safe. */
+    bird.y = R.y;  bird.py = R.y;
+    bird.vy = R.vy;
+    bird.rot = R.rot;  bird.prot = R.rot;
+    G.roost = null;
+    roostCoins.length = 0;
+    G.flash = reduceMotion ? 0 : 0.9;
+    audio.power();
+  }
+
+  function tick() {
+    if (G.paused) return;      // the loop keeps rendering; the world stops
+    if (G.hitStop > 0) { G.hitStop--; return; }
+    G.ticks++;
+    const ts = G.slow > 0 && G.state === PLAYING ? SLOWMO : 1;
+
+    bird.py = bird.y;
+    bird.prot = bird.rot;
+    if (bird.wing > 0) bird.wing--;
+
+    if (G.state === READY) {
+      // Idle bob on the title screen.
+      bird.y = 236 + Math.sin(G.ticks / 15) * 6;
+      bird.rot = Math.sin(G.ticks / 15) * 0.07;
+      G.scroll += G.speed;
+      G.cycle += G.speed;
+    } else if (G.state === PLAYING && G.roost) {
+      tickRoost();
+    } else if (G.state === PLAYING) {
+      G.runTicks++;
+      bird.vy = clamp(bird.vy + G.gravity * ts, -20, G.maxVy);
+      bird.y += bird.vy * ts;
+      G.scroll += G.speed * ts;
+      G.cycle += G.speed * ts;
+
+      for (const p of pipes) {
+        p.px = p.x;
+        p.x -= G.speed * ts;
+        // A mover swings its whole pair; collision follows it because the
+        // gap centre itself is what moves.
+        if (p.amp) p.gap = p.base + Math.sin(G.ticks * MOVE_SPD + p.phase) * p.amp;
+      }
+
+      // A gust pushes for a stretch, after its telegraph has had time to
+      // show. Scaled by ts so slow-mo slows the wind too.
+      if (G.gust) {
+        if (G.ticks >= G.gust.at && G.ticks < G.gust.until) bird.vy += G.gust.force * ts;
+        if (G.ticks >= G.gust.until) G.gust = null;
+      }
+      if (G.fog && G.ticks >= G.fog.until) G.fog = null;
+
+      /* The portal's pull. Six things make it safe rather than merely
+         gentle: it is capped, so tuning K and D can never break it; the cap
+         sits below this run's gravity, so doing nothing still sinks; flap()
+         assigns bird.vy outright rather than adding to it, so a single tap
+         erases everything the pull has gathered; the spring reverses sign
+         at the gap centre, so it never has a component toward a lip of its
+         own pipe; PULL_RANGE confines it to clear air, so it cannot steer
+         you into the pipe before; and it scales by ts exactly as gravity
+         does, so slow-mo preserves that margin rather than approximating
+         it. Refusing a portal is possible by argument, not by playtesting. */
+      const pp = G.portalPipe;
+      if (pp && !pp.used && pp.x <= bird.x + PULL_RANGE && pp.x + PIPE_W > bird.x - G.hitW / 2) {
+        const ramp = clamp((bird.x + PULL_RANGE - pp.x) / PULL_RAMP, 0, 1);
+        const raw = PULL_K * (pp.gap - bird.y) - PULL_D * bird.vy;
+        bird.vy += clamp(raw, -G.pullMax, G.pullMax) * ramp * ts;
+      }
+      for (const q of powers) { q.px = q.x; q.x -= G.speed * ts; q.bob += 0.07; }
+
+      // Recycle: drop what has left the screen, keep three pairs ahead.
+      while (pipes.length && pipes[0].x + PIPE_W < -10) {
+        if (pipes[0] === G.portalPipe) G.portalPipe = null;
+        pipes.shift();
+      }
+      while (powers.length && powers[0].x + PU_R < -10) powers.shift();
+      const last = pipes[pipes.length - 1];
+      if (!last || last.x < W + 40 + SPACING) spawnPipe((last ? last.x : W) + SPACING);
+
+      // Score: the pipe's centre line passes the bird.
+      for (const p of pipes) {
+        if (!p.scored && p.x + PIPE_W / 2 < bird.x) {
+          p.scored = true;
+          G.score++;
+          if (profile) profile.stats.pipes++;
+          earn(COIN_PIPE);
+          puff(p.x + PIPE_W / 2, bird.y, '#ffe9a8', 5);
+          audio.score();
+        }
+      }
+
+      // Power-ups.
+      for (const q of powers) {
+        if (q.got) continue;
+        const dx = Math.abs(q.x - bird.x), dy = Math.abs(q.y - bird.y);
+        if (dx < PU_R + G.hitW / 2 && dy < PU_R + G.hitH / 2) {
+          q.got = true;
+          if (q.kind === 'shield') G.shield = G.shieldHits;
+          else G.slow = G.puTicks;
+          if (profile) profile.stats.powers++;
+          earn(COIN_POWER);
+          audio.power();
+          puff(q.x, q.y, q.kind === 'shield' ? '#7fdcff' : '#c9a0ff', 10);
+        }
+      }
+      /* The door is the bird's centre against the ring's own radius, not
+         the generous box the power-ups use. A pickup should be forgiving; a
+         door must not swallow a bird that visibly passed outside it — the
+         same honesty the gust telegraph is built on. When it fires the bird
+         is within RING_R of the centre of a 176px opening, so the pipe
+         itself cannot be hit on the same tick. */
+      if (pp && !pp.used) {
+        const ddx = pp.x + PIPE_W / 2 - bird.x, ddy = pp.gap - bird.y;
+        if (ddx * ddx + ddy * ddy < RING_R * RING_R) enterRoost(pp);
+      }
+
+      if (G.slow > 0) G.slow--;
+      if (G.invuln > 0) G.invuln--;
+
+      // Collisions.
+      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; die(false); }
+      else if (bird.y - G.hitH / 2 < 0) { bird.y = G.hitH / 2; bird.vy = 0; }
+      else if (G.invuln === 0) {
+        for (const p of pipes) {
+          if (hitsPipe(p)) {
+            if (G.shield > 0) {
+              G.shield--;      // Coal carries two
+              G.invuln = SHIELD_IV;
+              bird.vy = Math.min(bird.vy, -3.4);
+              audio.pop();
+              puff(bird.x, bird.y, '#7fdcff', 12);
+              G.flash = reduceMotion ? 0 : 0.45;
+            } else {
+              die(true);
+            }
+            break;
+          }
+        }
+      }
+
+      // Rotation follows velocity: nose up on a flap, dive on the way down.
+      const target = bird.vy < 0 ? -0.42 : clamp(bird.vy * 0.13, -0.42, 1.5);
+      bird.rot += (target - bird.rot) * 0.18;
+    } else if (G.state === DYING) {
+      bird.vy = clamp(bird.vy + G.gravity * 1.1, -20, G.maxVy);
+      bird.y += bird.vy;
+      bird.rot = Math.min(bird.rot + 0.11, 1.62);
+      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; land(); }
+    }
+
+    // Trail: cosmetic particles behind the bird. Emission thins out under
+    // prefers-reduced-motion rather than disappearing, so the cosmetic you
+    // paid for is still visibly there.
+    if (G.trail && G.trail.every && (G.state === PLAYING || G.state === DYING)) {
+      const every = reduceMotion ? G.trail.every * 3 : G.trail.every;
+      if (G.ticks % every === 0 && trail.length < 120) {
+        const cols = G.trail.colors;
+        trail.push({
+          x: bird.x - 10 + (Math.random() * 4 - 2),
+          y: bird.y + (Math.random() * 8 - 4),
+          vx: G.trail.drift - G.speed * 0.35,
+          vy: G.trail.rise + (Math.random() * 0.3 - 0.15),
+          life: G.trail.life,
+          max: G.trail.life,
+          size: G.trail.size,
+          color: cols[Math.floor(Math.random() * cols.length)]
+        });
+      }
+    }
+    for (let i = trail.length - 1; i >= 0; i--) {
+      const t = trail[i];
+      t.x += t.vx; t.y += t.vy; t.life--;
+      if (t.life <= 0 || t.x < -12) trail.splice(i, 1);
+    }
+
+    if (G.flash > 0) G.flash = Math.max(0, G.flash - 0.09);
+    if (G.shake > 0) G.shake = Math.max(0, G.shake - 0.7);
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const f = puffs[i];
+      f.x += f.vx; f.y += f.vy; f.vy += 0.06; f.life--;
+      if (f.life <= 0) puffs.splice(i, 1);
+    }
+  }
+
+  /* ══════════════════ rendering ══════════════════ */
+
+  const cv = document.getElementById('game');
+  const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  function px(c, size) { c.font = size + 'px "Press Start 2P", ui-monospace, monospace'; }
+
+  function textOut(c, str, x, y, size, fill, outline, align) {
+    px(c, size);
+    c.textAlign = align || 'center';
+    c.textBaseline = 'middle';
+    c.lineJoin = 'round';
+    c.miterLimit = 2;
+    c.lineWidth = Math.max(2, size * 0.28);
+    c.strokeStyle = outline || '#20160a';
+    c.strokeText(str, x, y);
+    c.fillStyle = fill || '#ffffff';
+    c.fillText(str, x, y);
+  }
+
+  // The times of day the equipped world offers.
+  function phaseList() {
+    return (G.world && G.world.phases) || PHASES;
+  }
+
+  function phaseNow() {
+    const list = phaseList();
+    const n = list.length;
+    // Holding a phase pins the sky; cycling drifts through the list.
+    const held = typeof G.bg === 'number' && G.bg >= 0 && G.bg < n;
+    const seg = held ? G.bg : ((G.cycle / PHASE_LEN) % n + n) % n;
+    const i = Math.floor(seg);
+    const t = (held || n === 1) ? 0 : smooth(clamp((seg - i - 0.55) / 0.45, 0, 1));
+    const a = list[i], b = list[(i + 1) % n];
+    return {
+      sky0: mix(a.sky[0], b.sky[0], t), sky1: mix(a.sky[1], b.sky[1], t),
+      cloud: mix(a.cloud, b.cloud, t), city: mix(a.city, b.city, t),
+      dirt: mix(a.dirt, b.dirt, t), grass: mix(a.grass, b.grass, t),
+      sun: mix(a.sun, b.sun, t), star: lerp(a.star, b.star, t)
+    };
+  }
+
+  function drawBird(c, x, y, rot, skin, wing, alphaOverride) {
+    const P = skin.p;
+    c.save();
+    c.translate(x, y);
+    c.rotate(rot);
+    c.globalAlpha = alphaOverride != null ? alphaOverride : (skin.alpha || 1);
+    const ox = -ART_W * CELL / 2, oy = -ART_H * CELL / 2;
+    for (let r = 0; r < ART_H; r++) {
+      const row = BIRD_ART[r];
+      for (let col = 0; col < ART_W; col++) {
+        const ch = row[col];
+        if (ch === '.') continue;
+        const fill = P[ch];
+        if (!fill) continue;
+        c.fillStyle = fill;
+        c.fillRect(ox + col * CELL, oy + r * CELL + (ch === 'W' ? wing : 0), CELL, CELL);
+      }
+    }
+    c.restore();
+  }
+
+  /* Drawn inside the bird's own transform so it leans with the dive.
+     `float` lifts a hat clear of the head — a halo, not a helmet. */
+  function drawHat(c, x, y, rot, hat, alphaOverride) {
+    if (!hat || !hat.art) return;
+    c.save();
+    c.translate(x, y);
+    c.rotate(rot);
+    if (alphaOverride != null) c.globalAlpha = alphaOverride;
+    const ox = -HAT_W * CELL / 2;
+    const oy = -ART_H * CELL / 2 - HAT_H * CELL + 2 - (hat.float || 0);
+    for (let r = 0; r < HAT_H; r++) {
+      const row = hat.art[r];
+      for (let col = 0; col < HAT_W; col++) {
+        const ch = row[col];
+        if (ch === '.') continue;
+        const fill = hat.c[ch];
+        if (!fill) continue;
+        c.fillStyle = fill;
+        c.fillRect(ox + col * CELL, oy + r * CELL, CELL, CELL);
+      }
+    }
+    c.restore();
+  }
+
+  function drawSky(ph) {
+    const g = ctx.createLinearGradient(0, 0, 0, GY);
+    g.addColorStop(0, ph.sky0);
+    g.addColorStop(1, ph.sky1);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, GY);
+
+    if (ph.star > 0.02) {
+      ctx.save();
+      for (const s of stars) {
+        ctx.globalAlpha = ph.star * (0.45 + 0.55 * Math.abs(Math.sin(G.ticks / 40 + s.tw * 6)));
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(s.x, s.y, s.r * 2, s.r * 2);
+      }
+      ctx.restore();
+    }
+
+    // Sun / moon, low and lazy on the right.
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = ph.sun;
+    ctx.beginPath();
+    ctx.arc(224, 84, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 0.16;
+    ctx.beginPath();
+    ctx.arc(224, 84, 32, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // A far ridge, drifting at an eighth of the speed. Depth comes from
+    // things moving at different rates, not from more things.
+    const fo = (G.scroll * 0.11) % 96;
+    ctx.save();
+    ctx.globalAlpha = 0.32;
+    ctx.fillStyle = ph.city;
+    for (let i = -1; i < 5; i++) {
+      const x = i * 96 - fo;
+      ctx.beginPath();
+      ctx.moveTo(x, GY - 30);
+      ctx.lineTo(x + 30, GY - 74);
+      ctx.lineTo(x + 54, GY - 44);
+      ctx.lineTo(x + 78, GY - 82);
+      ctx.lineTo(x + 96, GY - 34);
+      ctx.lineTo(x + 96, GY);
+      ctx.lineTo(x, GY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Skyline, parallax at a quarter speed.
+    const bo = (G.scroll * 0.25) % 38;
+    for (const b of buildings) {
+      const x = Math.round(b.x - bo - 38);
+      if (x > W || x + b.w < 0) continue;
+      ctx.fillStyle = ph.city;
+      ctx.fillRect(x, GY - b.h, b.w, b.h);
+      if (ph.star > 0.25) {
+        ctx.save();
+        ctx.globalAlpha = ph.star * 0.75;
+        ctx.fillStyle = '#ffd98a';
+        for (let wy = GY - b.h + 5; wy < GY - 6; wy += 8) {
+          for (let wx = x + 4; wx < x + b.w - 4; wx += 7) {
+            if ((wx * 7 + wy * 13) % 5 < 2) ctx.fillRect(wx, wy, 3, 3);
+          }
+        }
+        ctx.restore();
+      }
+    }
+
+    // Clouds at half speed.
+    const co = (G.scroll * 0.5) % (W + 200);
+    ctx.fillStyle = ph.cloud;
+    ctx.globalAlpha = 0.9;
+    for (const cl of clouds) {
+      const x = ((cl.x - co) % (W + 200) + W + 200) % (W + 200) - 100;
+      const s = cl.s;
+      ctx.fillRect(x, cl.y, 26 * s, 8 * s);
+      ctx.fillRect(x + 6 * s, cl.y - 6 * s, 15 * s, 8 * s);
+      ctx.fillRect(x - 6 * s, cl.y + 4 * s, 34 * s, 7 * s);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function drawPipe(p, x) {
+    const h = p.open || p.h || G.gap;
+    const top = p.gap - h / 2, bot = p.gap + h / 2;
+    const pal = (G.world && G.world.pipes) || PIPE_DEFAULT;
+    const body = pal.body, light = pal.light, dark = pal.dark, edge = pal.edge;
+
+    const column = (y, h) => {
+      ctx.fillStyle = body;   ctx.fillRect(x, y, PIPE_W, h);
+      ctx.fillStyle = light;  ctx.fillRect(x + 5, y, 8, h);
+      ctx.fillStyle = dark;   ctx.fillRect(x + PIPE_W - 13, y, 9, h);
+      ctx.fillStyle = edge;   ctx.fillRect(x, y, 2, h); ctx.fillRect(x + PIPE_W - 2, y, 2, h);
+    };
+    const lip = y => {
+      const lx = x - 4, lw = PIPE_W + 8;
+      ctx.fillStyle = body;   ctx.fillRect(lx, y, lw, LIP_H);
+      ctx.fillStyle = light;  ctx.fillRect(lx + 5, y, 8, LIP_H);
+      ctx.fillStyle = dark;   ctx.fillRect(lx + lw - 13, y, 9, LIP_H);
+      ctx.fillStyle = edge;
+      ctx.fillRect(lx, y, 2, LIP_H); ctx.fillRect(lx + lw - 2, y, 2, LIP_H);
+      ctx.fillRect(lx, y, lw, 2);    ctx.fillRect(lx, y + LIP_H - 2, lw, 2);
+    };
+
+    column(0, top - LIP_H);
+    lip(top - LIP_H);
+    column(bot + LIP_H, GY - bot - LIP_H);
+    lip(bot);
+  }
+
+  /* The door. A dark mouth with a lit rim, so it reads as a way through
+     rather than as another coin. The shimmer pulses in size and alpha but
+     is never absent, the same rule the gust telegraph follows: a marker
+     that vanishes half the time is a poor marker. */
+  function drawDoor(p, x) {
+    const cx = x + PIPE_W / 2, cy = p.gap;
+    const beat = reduceMotion ? 0 : Math.sin(G.ticks / 9);
+    ctx.save();
+    ctx.globalAlpha = 0.22 + 0.10 * beat;
+    ctx.fillStyle = '#c9a0ff';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R + 9 + beat * 2, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#1a0b3d';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R - 2, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = '#20160a';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#e6d2ff';
+    ctx.beginPath(); ctx.arc(cx, cy, RING_R, 0, Math.PI * 2); ctx.stroke();
+    // Four marks turning inside the mouth, so it looks like a way in.
+    const spin = reduceMotion ? 0 : G.ticks * 0.05;
+    ctx.fillStyle = '#ffe9ff';
+    for (let i = 0; i < 4; i++) {
+      const a = spin + i * Math.PI / 2;
+      ctx.fillRect(Math.round(cx + Math.cos(a) * (RING_R - 6) - 1.5),
+                   Math.round(cy + Math.sin(a) * (RING_R - 6) - 1.5), 3, 3);
+    }
+    ctx.restore();
+  }
+
+  function drawRoostCoin(c, x) {
+    const beat = reduceMotion ? 0 : Math.sin(G.ticks / 7 + c.y) * 1.5;
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    ctx.fillStyle = '#ffe9a8';
+    ctx.beginPath(); ctx.arc(x, c.y + beat, 12, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#c9921f';
+    ctx.beginPath(); ctx.arc(x, c.y + beat, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffe07a';
+    ctx.beginPath(); ctx.arc(x, c.y + beat, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#fff6cf';
+    ctx.fillRect(Math.round(x - 1), Math.round(c.y + beat - 3), 2, 6);
+    ctx.restore();
+  }
+
+  function drawPower(q, x) {
+    const y = q.y + Math.sin(q.bob) * 3;
+    const shield = q.kind === 'shield';
+    ctx.save();
+    ctx.globalAlpha = 0.28;
+    ctx.fillStyle = shield ? '#7fdcff' : '#c9a0ff';
+    ctx.beginPath(); ctx.arc(x, y, PU_R + 4, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = shield ? '#2f9fd8' : '#8a5ad0';
+    ctx.beginPath(); ctx.arc(x, y, PU_R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = shield ? '#d6f4ff' : '#f0e2ff';
+    if (shield) {
+      ctx.fillRect(x - 5, y - 6, 10, 6);
+      ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(x + 5, y); ctx.lineTo(x, y + 7); ctx.closePath(); ctx.fill();
+    } else {
+      ctx.fillRect(x - 6, y - 7, 12, 2);
+      ctx.fillRect(x - 6, y + 5, 12, 2);
+      ctx.beginPath(); ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y - 5); ctx.lineTo(x, y); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(x - 5, y + 5); ctx.lineTo(x + 5, y + 5); ctx.lineTo(x, y); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawGround(ph) {
+    ctx.fillStyle = ph.dirt;
+    ctx.fillRect(0, GY + 10, W, H - GY - 10);
+    ctx.fillStyle = ph.grass;
+    ctx.fillRect(0, GY, W, 10);
+    ctx.fillStyle = 'rgba(0,0,0,.22)';
+    ctx.fillRect(0, GY + 10, W, 2);
+
+    const o = G.scroll % 24;
+    ctx.fillStyle = 'rgba(0,0,0,.10)';
+    for (let x = -24; x < W + 24; x += 24) ctx.fillRect(Math.round(x - o), GY + 16, 12, 4);
+    ctx.fillStyle = 'rgba(255,255,255,.16)';
+    for (let x = -24; x < W + 24; x += 24) ctx.fillRect(Math.round(x - o + 12), GY + 26, 8, 3);
+
+    // Foreground tufts, slightly faster than the ground itself.
+    const to = (G.scroll * 1.15) % 64;
+    ctx.fillStyle = ph.grass;
+    for (let x = -64; x < W + 64; x += 64) {
+      const bx = Math.round(x - to);
+      ctx.fillRect(bx, GY - 4, 3, 6);
+      ctx.fillRect(bx + 4, GY - 7, 3, 9);
+      ctx.fillRect(bx + 8, GY - 3, 3, 5);
+    }
+  }
+
+  /* A gust you cannot see coming is unfair rather than hard, so it is
+     announced before it bites and stays marked while it blows. */
+  function drawWeather() {
+    // The world's weather belongs to the world, not to the room next door.
+    if (G.roost) return;
+    if (G.fog) {
+      const fade = clamp((G.fog.until - G.ticks) / 40, 0, 1);
+      const g = ctx.createLinearGradient(0, G.fog.y - 30, 0, G.fog.y + 110);
+      g.addColorStop(0, 'rgba(226,236,244,0)');
+      g.addColorStop(0.5, 'rgba(226,236,244,' + (0.82 * fade) + ')');
+      g.addColorStop(1, 'rgba(226,236,244,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, G.fog.y - 30, W, 140);
+    }
+
+    /* The door announces itself the moment it comes on screen — around
+       110 ticks before the pull can even reach, against the pull's own 43.
+       Pulsing in size, never blinking out, by the same rule as the gust. */
+    const pp = G.portalPipe;
+    if (pp && !pp.used && pp.x < W + 40) {
+      const near = pp.x <= bird.x + PULL_RANGE;
+      const pulse = !reduceMotion && Math.floor(G.ticks / 7) % 2 === 0;
+      textOut(ctx, near ? 'PULLING YOU IN' : 'PORTAL AHEAD', W / 2, 126,
+        pulse ? 9 : 8, near ? '#e6d2ff' : '#c9a0ff', '#20160a');
+    }
+
+    if (!G.gust) return;
+    const coming = G.ticks < G.gust.at;
+    const up = G.gust.force < 0;
+    const dir = up ? -1 : 1;
+
+    // Clear of the score and the corner buttons, and loud enough to read
+    // against a bright sky — a warning nobody notices is not a warning.
+    // Always legible while it matters; the pulse is in the size, not in
+    // whether it is drawn. A label that vanishes half the time is a poor
+    // warning.
+    const pulse = coming && Math.floor(G.ticks / 7) % 2 === 0;
+    textOut(ctx, up ? 'UPDRAFT' : 'DOWNDRAFT', W / 2, 104,
+      coming ? (pulse ? 9 : 8) : 7,
+      coming ? (up ? '#cdefff' : '#ffdcae') : 'rgba(255,255,255,.8)', '#20160a');
+
+    ctx.save();
+    ctx.globalAlpha = coming ? 0.55 + 0.35 * Math.sin(G.ticks / 4) : 0.75;
+    const scroll = coming ? 0 : (G.ticks * 1.8 * dir);
+    for (let i = 0; i < 6; i++) {
+      const yy = ((136 + i * 42 + scroll - 136) % 252 + 252) % 252 + 136;
+      for (const x of [16, W - 16]) {
+        // The apex points the way the wind will push you. Getting this
+        // backwards is worse than showing nothing at all.
+        ctx.fillStyle = '#20160a';
+        ctx.beginPath();
+        ctx.moveTo(x - 9, yy - 4 * dir);
+        ctx.lineTo(x, yy + 7 * dir);
+        ctx.lineTo(x + 9, yy - 4 * dir);
+        ctx.lineTo(x, yy - 1 * dir);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = up ? '#cdefff' : '#ffdcae';
+        ctx.beginPath();
+        ctx.moveTo(x - 6, yy - 3 * dir);
+        ctx.lineTo(x, yy + 4 * dir);
+        ctx.lineTo(x + 6, yy - 3 * dir);
+        ctx.lineTo(x, yy - 0.5 * dir);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+
+  function drawHud() {
+    if (G.state === PLAYING || G.state === DYING) {
+      textOut(ctx, String(G.score), W / 2, 62, 24, '#ffffff', '#20160a');
+    }
+    if (G.slow > 0 && G.state === PLAYING && !G.roost) {
+      const w = 74, x = (W - w) / 2, y = 88;
+      ctx.fillStyle = 'rgba(20,16,34,.45)'; ctx.fillRect(x - 1, y - 1, w + 2, 7);
+      ctx.fillStyle = '#c9a0ff';            ctx.fillRect(x, y, w * clamp(G.slow / G.puTicks, 0, 1), 5);
+      textOut(ctx, 'SLOW-MO', W / 2, y + 15, 6, '#e5d4ff', '#231a3a');
+    }
+    if (G.shield && G.state === PLAYING && !G.roost) {
+      textOut(ctx, G.shield > 1 ? 'SHIELD x' + G.shield : 'SHIELD', W / 2, G.slow > 0 ? 118 : 92, 6, '#cdf0ff', '#123244');
+    }
+    if (G.roost) {
+      // The score is deliberately still on screen and deliberately still:
+      // nothing you do in here moves it.
+      textOut(ctx, 'THE ROOST', W / 2, 92, 8, '#e6d2ff', '#20160a');
+      textOut(ctx, G.roost.got + ' / ' + ROOST_COINS, W / 2, 110, 7, '#ffe07a', '#20160a');
+    }
+  }
+
+  function panel(x, y, w, h) {
+    ctx.fillStyle = '#20160a'; ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
+    ctx.fillStyle = '#e7dcb4'; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#fdf6de'; ctx.fillRect(x, y, w, 3);
+    ctx.fillStyle = '#c3b483'; ctx.fillRect(x, y + h - 3, w, 3);
+  }
+
+  function medalFor(s) {
+    if (s >= 40) return { ring: '#dbe4ee', core: '#f4f8ff', name: 'PLATINUM' };
+    if (s >= 30) return { ring: '#e5b93c', core: '#ffe796', name: 'GOLD' };
+    if (s >= 20) return { ring: '#b9c2cc', core: '#e6ecf3', name: 'SILVER' };
+    if (s >= 10) return { ring: '#c07a35', core: '#eaa96a', name: 'BRONZE' };
+    return null;
+  }
+
+  function drawMedal(m, x, y) {
+    ctx.fillStyle = '#20160a'; ctx.beginPath(); ctx.arc(x, y, 17, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = m.ring;    ctx.beginPath(); ctx.arc(x, y, 15, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = m.core;    ctx.beginPath(); ctx.arc(x, y, 10, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,.7)';
+    ctx.beginPath(); ctx.arc(x - 4, y - 5, 3, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Level badge with a progress bar — small, and only where there is room.
+  function drawLevel(cx, y) {
+    if (!profile) return;
+    const lvl = levelFor(profile.xp);
+    const frac = levelProgress(profile.xp);
+    const w = 96;
+    textOut(ctx, 'LEVEL ' + lvl, cx, y, 7, '#ffe07a', '#20160a');
+    ctx.fillStyle = 'rgba(20,16,34,.42)';
+    ctx.fillRect(cx - w / 2 - 1, y + 8, w + 2, 6);
+    ctx.fillStyle = '#ffc93d';
+    ctx.fillRect(cx - w / 2, y + 9, Math.max(1, w * frac), 4);
+  }
+
+  function drawReady() {
+    // The title breathes rather than sitting dead on the screen.
+    const lift = reduceMotion ? 0 : Math.sin(G.ticks / 34) * 3;
+    textOut(ctx, 'DreyBird', W / 2, 128 + lift, 22, '#ffe07a', '#20160a');
+    textOut(ctx, 'A FLAPPY TRIBUTE', W / 2, 158 + lift * 0.5, 7, '#ffffff', '#20160a');
+    if (Math.floor(G.ticks / 26) % 2 === 0) {
+      textOut(ctx, 'TAP TO FLAP', W / 2, 316, 11, '#ffffff', '#20160a');
+    }
+
+    // Nobody should have to guess at the rules on their first go. One
+    // line, below the prompt, where it cannot sit on top of the bird —
+    // the first version put a panel straight through it.
+    if (profile && !profile.taught) {
+      textOut(ctx, 'EACH TAP LIFTS YOU. MIND THE GAPS.', W / 2, 336, 6, '#cdefff', '#20160a');
+    }
+
+    textOut(ctx, 'BEST  ' + G.best, W / 2, 356, 8, '#ffe07a', '#20160a');
+    if (profile) {
+      textOut(ctx, profile.name.toUpperCase(), W / 2, 176, 7, '#d8f2ff', '#20160a');
+      drawLevel(W / 2, 196);
+    }
+  }
+
+  function drawOver() {
+    const t = clamp((G.ticks - G.overAt) / 14, 0, 1);
+    const dy = (1 - smooth(t)) * 22;
+    ctx.save();
+    ctx.globalAlpha = smooth(t);
+    ctx.translate(0, dy);
+
+    textOut(ctx, 'GAME OVER', W / 2, 132, 18, '#ffd166', '#20160a');
+
+    const pw = 202, ph = 100, pxx = (W - pw) / 2, pyy = 172;
+    panel(pxx, pyy, pw, ph);
+    ctx.fillStyle = 'rgba(32,22,10,.10)';
+    ctx.fillRect(pxx + 82, pyy + 12, 2, ph - 24);
+
+    const m = medalFor(G.score);
+    if (m) {
+      drawMedal(m, pxx + 42, pyy + 40);
+      textOut(ctx, m.name, pxx + 42, pyy + 70, 6, '#4a3a18', '#e7dcb4');
+    } else {
+      textOut(ctx, 'NO MEDAL', pxx + 42, pyy + 40, 6, '#a3946a', '#e7dcb4');
+      textOut(ctx, 'THIS RUN', pxx + 42, pyy + 54, 6, '#a3946a', '#e7dcb4');
+    }
+
+    const rx = pxx + pw - 16;
+    textOut(ctx, 'SCORE', rx, pyy + 18, 7, '#8d7c4c', '#e7dcb4', 'right');
+    textOut(ctx, String(G.score), rx, pyy + 36, 15, '#ffffff', '#20160a', 'right');
+    textOut(ctx, 'BEST', rx, pyy + 62, 7, '#8d7c4c', '#e7dcb4', 'right');
+    textOut(ctx, String(G.best), rx, pyy + 80, 15, '#ffffff', '#20160a', 'right');
+
+    if (G.runXp > 0) {
+      textOut(ctx, '+' + G.runXp + ' XP', pxx + pw - 16, pyy + 88, 6,
+        G.beatBest ? '#ffe07a' : '#8d7c4c', '#e7dcb4', 'right');
+    }
+    if (G.levelUp > 0) {
+      textOut(ctx, 'LEVEL ' + levelFor(profile ? profile.xp : 0) + '!', W / 2, pyy - 16, 9, '#ffe07a', '#20160a');
+    }
+
+    if (G.runAssist) {
+      textOut(ctx, 'ASSIST MODE', W / 2, pyy + ph + 18, 7, '#9fd8ff', '#20160a');
+      textOut(ctx, 'NO RECORD SET', W / 2, pyy + ph + 32, 6, '#8ea9bd', '#20160a');
+    }
+
+    // One line, inside the panel. Two lines starting at +88 ran past the
+    // panel's bottom edge at +100 and printed over its border.
+    if (G.runCoins > 0) {
+      textOut(ctx, '+' + G.runCoins + ' COINS', pxx + 42, pyy + 88, 6, '#c8901c', '#e7dcb4');
+    }
+
+    if (G.newBest) {
+      ctx.fillStyle = '#20160a'; ctx.fillRect(pxx + 92, pyy + 54, 48, 14);
+      ctx.fillStyle = '#e0452f'; ctx.fillRect(pxx + 94, pyy + 56, 44, 10);
+      textOut(ctx, 'NEW!', pxx + 116, pyy + 61, 6, '#ffffff', '#a3281a');
+    }
+
+    if (G.ticks - G.overAt > 26 && Math.floor(G.ticks / 26) % 2 === 0) {
+      textOut(ctx, 'TAP TO PLAY AGAIN', W / 2, 322, 9, '#ffffff', '#20160a');
+    }
+    ctx.restore();
+  }
+
+  function render(alpha) {
+    const by = lerp(bird.py, bird.y, alpha);
+    const brot = lerp(bird.prot, bird.rot, alpha);
+    const ph = G.roost ? ROOST_PHASE : phaseNow();
+
+    ctx.setTransform(RS, 0, 0, RS, 0, 0);
+    if (G.shake > 0.2) {
+      ctx.translate((Math.random() - 0.5) * G.shake, (Math.random() - 0.5) * G.shake);
+    }
+
+    drawSky(ph);
+
+    if (G.roost) {
+      for (const c of roostCoins) if (!c.got) drawRoostCoin(c, lerp(c.px, c.x, alpha));
+    } else {
+      for (const p of pipes) {
+        const px = Math.round(lerp(p.px, p.x, alpha));
+        drawPipe(p, px);
+        if (p.portal && !p.used) drawDoor(p, px);
+      }
+      for (const q of powers) if (!q.got) drawPower(q, lerp(q.px, q.x, alpha));
+    }
+
+    // Behind the bird, so it reads as something left in its wake.
+    for (const t of trail) {
+      ctx.globalAlpha = clamp(t.life / t.max, 0, 1) * 0.9;
+      ctx.fillStyle = t.color;
+      ctx.fillRect(Math.round(t.x), Math.round(t.y), t.size, t.size);
+    }
+
+    for (const f of puffs) {
+      ctx.globalAlpha = clamp(f.life / 24, 0, 1);
+      ctx.fillStyle = f.color;
+      ctx.fillRect(Math.round(f.x), Math.round(f.y), 3, 3);
+    }
+    ctx.globalAlpha = 1;
+
+    drawGround(ph);
+
+    const wing = bird.wing > 6 ? -2 : bird.wing > 3 ? 0 : bird.wing > 0 ? 2
+      : (G.state === PLAYING || G.state === READY ? (Math.sin(G.ticks / 7) > 0 ? 0 : 2) : 0);
+    const blink = G.invuln > 0 && Math.floor(G.ticks / 4) % 2 === 0 ? 0.4 : null;
+    drawAuraAt(bird.x, by);
+    drawBird(ctx, bird.x, by, brot, G.skin, wing, blink);
+    drawHat(ctx, bird.x, by, brot, G.hat, blink);
+
+    drawWeather();
+    drawHud();
+    if (G.state === READY) drawReady();
+    if (G.state === OVER) drawOver();
+
+    if (G.flash > 0.01) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (G.flash * 0.7) + ')';
+      ctx.fillRect(-20, -20, W + 40, H + 40);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+  }
+
+  function drawAuraAt(bx, by) {
+    if (G.state !== PLAYING && G.state !== DYING) return;
+    if (!G.shield && G.slow <= 0) return;
+    ctx.save();
+    ctx.globalAlpha = 0.3 + 0.16 * Math.sin(G.ticks / 5);
+    ctx.strokeStyle = G.shield ? '#7fdcff' : '#c9a0ff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(bx, by, 24, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  /* ══════════════════ loop ══════════════════ */
+
+  let acc = 0, last = 0, started = false;
+
+  function frame(now) {
+    // Fault injection for the crash suite. One comparison a frame, and it
+    // is the only honest way to test that a real throw is survivable.
+    if (window.__breakFrames > 0) { window.__breakFrames--; throw new Error('injected frame fault'); }
+    if (!started) { last = now; started = true; }
+    let delta = now - last;
+    last = now;
+    if (delta > 250) delta = 250;        // tab was hidden — don't fast-forward
+    acc += delta;
+    let guard = 0;
+    while (acc >= DT && guard++ < 8) { tick(); acc -= DT; }
+    render(clamp(acc / DT, 0, 1));
+  }
+
+  /* ── surviving, and admitting to, a crash ─────────────────────────
+     A frozen canvas is the worst possible failure: it looks like a hang,
+     tells the player nothing, and gives them nothing to report back. So
+     one bad frame is survivable, a persistently bad one stops and says
+     what happened, and either way the profile is written first — losing
+     a crash is annoying, losing the runs that led to it is worse. */
+  const CRASH_LIMIT = 8;
+  let crashCount = 0;
+  let crashed = null;
+
+  function noteCrash(err) {
+    const msg = (err && (err.message || err.toString())) || 'Unknown error';
+    try { music.stop(); } catch (e) { /* going down anyway */ }
+    try { saveProfile(); } catch (e) { /* nothing left to try */ }
+    return msg;
+  }
+
+  function paintCrash() {
+    try {
+      ctx.setTransform(RS, 0, 0, RS, 0, 0);
+      ctx.fillStyle = '#1a1420';
+      ctx.fillRect(0, 0, W, H);
+      textOut(ctx, 'OH DEAR', W / 2, 168, 16, '#ffd166', '#20160a');
+      textOut(ctx, 'DreyBird hit a problem', W / 2, 200, 7, '#ffffff', '#20160a');
+      textOut(ctx, 'Your progress was saved.', W / 2, 216, 7, '#9fd8ff', '#20160a');
+
+      // The player is the only person who can tell me what happened, so
+      // show the actual error rather than a generic apology.
+      const words = String(crashed || '').slice(0, 160).split(/\s+/);
+      let line = '', y = 250;
+      px(ctx, 6);
+      for (const word of words) {
+        const next = line ? line + ' ' + word : word;
+        if (ctx.measureText(next).width > W - 32 && line) {
+          textOut(ctx, line, W / 2, y, 6, '#c9b6d8', '#20160a');
+          y += 11; line = word;
+          if (y > 330) break;
+        } else line = next;
+      }
+      if (line && y <= 330) textOut(ctx, line, W / 2, y, 6, '#c9b6d8', '#20160a');
+
+      textOut(ctx, 'TAP TO RELOAD', W / 2, 366, 8, '#ffffff', '#20160a');
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      stage.dataset.crashed = '1';
+    } catch (e) { /* if even this fails, there is nothing further to do */ }
+  }
+
+  function loop(now) {
+    if (crashed) return;                 // stopped, and the screen says so
+    try {
+      frame(now);
+      if (crashCount > 0) crashCount--;  // recovered; forgive the earlier one
+    } catch (err) {
+      const msg = noteCrash(err);
+      if (++crashCount >= CRASH_LIMIT) {
+        crashed = msg;
+        paintCrash();
+        return;
+      }
+      // A single bad frame is survivable: skip it and carry on.
+    }
+    requestAnimationFrame(loop);
+  }
+
+  // Anything thrown outside the loop lands here — and the profile goes to
+  // storage before we do anything else with it.
+  addEventListener('error', e => {
+    if (crashed) return;
+    crashed = noteCrash(e.error || (e.message ? { message: e.message } : null));
+    paintCrash();
+  });
+  addEventListener('unhandledrejection', e => {
+    if (crashed) return;
+    crashed = noteCrash(e.reason);
+    paintCrash();
+  });
+
+  /* ══════════════════ input ══════════════════ */
+
+  const stage = document.getElementById('stage');
+  const sheet = document.getElementById('sheet');
+  const playersSheet = document.getElementById('players');
+  const settingsSheet = document.getElementById('settings');
+  const pausedSheet = document.getElementById('paused');
+  const skinList = document.getElementById('skin-list');
+  const btnSkins = document.getElementById('btn-skins');
+  const btnSound = document.getElementById('btn-sound');
+
+  function syncStage() {
+    stage.dataset.playing = (G.state === PLAYING || G.state === DYING) ? '1' : '0';
+  }
+
+  function press() {
+    // After a crash the only useful action is starting over, so give the
+    // tap somewhere to go rather than printing an instruction at someone.
+    //
+    // Deferred out of the pointer handler on purpose: reloading synchronously
+    // from inside the event wedges the navigation and leaves the document
+    // stuck parsing forever — a hang, which is the very thing this screen
+    // exists to avoid.
+    if (crashed) { setTimeout(() => location.reload(), 0); return; }
+    if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden ||
+        !statsSheet.hidden || !pausedSheet.hidden) return;
+    audio.ensure();
+    if (music.on && !audio.muted) music.start();
+    askPersist();
+    if (G.state === READY) { startPlay(); flap(); }
+    else if (G.state === PLAYING) flap();
+    else if (G.state === OVER && G.ticks - G.overAt > 24) resetWorld();
+  }
+
+  cv.addEventListener('pointerdown', e => { e.preventDefault(); press(); });
+  cv.addEventListener('contextmenu', e => e.preventDefault());
+  addEventListener('keydown', e => {
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'Enter') {
+      if (document.activeElement && document.activeElement.tagName === 'BUTTON' && e.code === 'Enter') return;
+      e.preventDefault();
+      press();
+    }
+    if (e.code === 'Escape') {
+      if (!sheet.hidden) closeSheet();
+      else if (!playersSheet.hidden) closePlayers();
+      else if (!settingsSheet.hidden) closeSettings();
+      else if (!statsSheet.hidden) closeStats();
+      else if (!pausedSheet.hidden) resumeRun();
+    }
+  });
+  addEventListener('blur', () => { if (G.state === PLAYING) { /* keep running; dt is clamped */ } });
+  addEventListener('pagehide', () => { saveProfile(); });
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveProfile(); });
+
+  /* ══════════════════ bird picker ══════════════════ */
+
+  /* ── shop previews: one small canvas per card ─────────────────── */
+
+  function previewCanvas(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w * 2;
+    c.height = h * 2;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.setTransform(2, 0, 0, 2, 0, 0);
+    return [c, g];
+  }
+
+  // One frame for every card, tall enough that a hat is never clipped.
+  const PV_W = ART_W * CELL, PV_H = ART_H * CELL + 18;
+
+  function skinPreview(skin, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    drawBird(g, PV_W / 2, PV_H / 2, 0, skin, 0, dim ? 0.3 : (skin.alpha || 1));
+    return c;
+  }
+
+  function hatPreview(hat, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    // Shown on the bird you actually play, so you can judge the pairing.
+    const y = PV_H / 2 + 6;
+    drawBird(g, PV_W / 2, y, 0, G.skin, 0, dim ? 0.3 : (G.skin.alpha || 1));
+    drawHat(g, PV_W / 2, y, 0, hat, dim ? 0.3 : null);
+    return c;
+  }
+
+  function trailPreview(t, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    const midY = PV_H / 2;
+    g.globalAlpha = dim ? 0.3 : 1;
+    if (t.colors) {
+      for (let i = 0; i < 11; i++) {
+        g.globalAlpha = (dim ? 0.3 : 1) * (1 - i / 12);
+        g.fillStyle = t.colors[i % t.colors.length];
+        g.fillRect(24 - i * 2.4, midY - 1 + Math.sin(i / 1.7) * 3, t.size, t.size);
+      }
+    }
+    g.globalAlpha = dim ? 0.3 : 1;
+    drawBird(g, 26, midY, 0, G.skin, 0, dim ? 0.3 : (G.skin.alpha || 1));
+    return c;
+  }
+
+  function worldPreview(w, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    const ww = PV_W, hh = PV_H;
+    const ph = (w.phases || PHASES)[0];
+    g.globalAlpha = dim ? 0.35 : 1;
+    const sky = g.createLinearGradient(0, 0, 0, hh);
+    sky.addColorStop(0, ph.sky[0]);
+    sky.addColorStop(1, ph.sky[1]);
+    g.fillStyle = sky; g.fillRect(0, 0, ww, hh);
+    const pal = w.pipes || PIPE_DEFAULT;
+    g.fillStyle = pal.body;  g.fillRect(20, 0, 12, 13); g.fillRect(20, 25, 12, hh);
+    g.fillStyle = pal.light; g.fillRect(22, 0, 3, 13);   g.fillRect(22, 25, 3, hh);
+    g.fillStyle = pal.edge;  g.fillRect(18, 11, 16, 3);  g.fillRect(18, 23, 16, 3);
+    g.fillStyle = ph.grass;  g.fillRect(0, hh - 7, ww, 3);
+    g.fillStyle = ph.dirt;   g.fillRect(0, hh - 4, ww, 4);
+    return c;
+  }
+
+  function featherPreview(f, dim) {
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    g.globalAlpha = dim ? 0.35 : 1;
+    // Each perk carries its own colour, so six rows are scannable rather
+    // than six identical feathers in whatever the current bird happens
+    // to be wearing.
+    const pal = { O: '#20160a', B: f.hue[1], L: f.hue[0] };
+    const cx = PV_W / 2, cy = PV_H / 2;
+    g.fillStyle = pal.O;
+    g.fillRect(cx - 1, cy - 14, 3, 28);
+    for (let i = 0; i < 9; i++) {
+      const w = Math.round(3 + Math.sin((i / 9) * Math.PI) * 8);
+      g.fillStyle = i % 2 ? pal.B : pal.L;
+      g.fillRect(cx - 1 - w, cy - 12 + i * 3, w, 3);
+      g.fillStyle = i % 2 ? pal.L : pal.B;
+      g.fillRect(cx + 2, cy - 12 + i * 3, w, 3);
+    }
+    return c;
+  }
+
+  /* ── shop ─────────────────────────────────────────────────────────
+     Buying and equipping are the same screen: it is where someone goes
+     looking for their birds anyway. */
+  const TABS = [
+    { kind: 'bird',  list: () => SKINS,  preview: skinPreview,  equip: 'skin' },
+    { kind: 'hat',   list: () => HATS,   preview: hatPreview,   equip: 'hat' },
+    { kind: 'trail', list: () => TRAILS, preview: trailPreview, equip: 'trail' },
+    { kind: 'world', list: () => WORLDS, preview: worldPreview, equip: 'world' },
+    { kind: 'feather', list: () => FEATHERS, preview: featherPreview, equip: null }
+  ];
+  let shopKind = 'bird';
+
+  function equipped(tab, item) {
+    if (!profile) return false;
+    if (tab.kind === 'feather') return (profile.feathers || []).indexOf(item.id) >= 0;
+    return profile[tab.equip] === item.id;
+  }
+
+  function equip(tab, item) {
+    if (!profile) return;
+    if (tab.kind === 'feather') {
+      // Perks toggle into a limited number of slots. Equipping a fourth
+      // with three slots is refused rather than silently dropping one.
+      const list = profile.feathers || (profile.feathers = []);
+      const at = list.indexOf(item.id);
+      if (at >= 0) list.splice(at, 1);
+      else {
+        if (levelFor(profile.xp) < item.lvl) return;
+        if (list.length >= slotsAt(levelFor(profile.xp))) return;
+        list.push(item.id);
+      }
+    } else {
+      profile[tab.equip] = item.id;
+    }
+    saveProfile();
+    applyProfile();
+    buildSheet();
+    buildPlayers();
+    buildSettings();     // a new world brings a different set of skies
+  }
+
+  function cardLabel(tab, item) {
+    if (tab.kind === 'feather') {
+      const lvl = profile ? levelFor(profile.xp) : 1;
+      if (lvl < item.lvl) return { text: 'Unlocks at level ' + item.lvl, cls: 'price short' };
+      if (equipped(tab, item)) return { text: 'Equipped — ' + item.blurb, cls: 'req' };
+      const free = slotsAt(lvl) - (profile ? (profile.feathers || []).length : 0);
+      if (free > 0) return { text: item.blurb, cls: 'req' };
+      // "No free slot" without saying when one opens is why this had to
+      // be asked out loud in the first place.
+      const next = SLOT_LEVELS.find(n => lvl < n);
+      return {
+        text: next
+          ? 'Slot ' + (slotsAt(lvl) + 1) + ' opens at level ' + next + ' — ' + item.blurb
+          : 'All slots full — ' + item.blurb,
+        cls: 'price short'
+      };
+    }
+    if (item.need != null && !available(item)) return { text: 'Reach a best of ' + item.need, cls: 'req' };
+    if (!owns(item)) {
+      const short = profile ? item.cost - profile.coins : item.cost;
+      return short > 0
+        ? { text: item.cost + ' coins — ' + short + ' more to go', cls: 'price short' }
+        : { text: 'Buy for ' + item.cost + ' coins', cls: 'price' };
+    }
+    return { text: equipped(tab, item) ? 'Equipped' : 'Tap to equip', cls: 'req' };
+  }
+
+  function tag(cls, text) {
+    const el = document.createElement('span');
+    el.className = 'tag ' + cls;
+    el.textContent = (cls === 'up' ? '+ ' : cls === 'down' ? '− ' : '') + text;
+    return el;
+  }
+
+  function buildSheet() {
+    const tab = TABS.find(t => t.kind === shopKind) || TABS[0];
+    const wallet = document.getElementById('wallet');
+    if (wallet) {
+      const lvl = profile ? levelFor(profile.xp) : 1;
+      const used = profile ? (profile.feathers || []).length : 0;
+      const next = SLOT_LEVELS.find(n => lvl < n);
+      wallet.textContent = shopKind === 'feather'
+        ? 'LV ' + lvl + '  ·  ' + used + '/' + slotsAt(lvl) + ' SLOTS' +
+          (next ? '  ·  NEXT AT ' + next : '')
+        : String(profile ? profile.coins : 0);
+    }
+    const coinDot = document.querySelector('.wallet .coin');
+    if (coinDot) coinDot.style.display = shopKind === 'feather' ? 'none' : '';
+
+    for (const b of document.querySelectorAll('#shop-tabs .tab')) {
+      b.setAttribute('aria-selected', String(b.dataset.kind === shopKind));
+    }
+
+    skinList.textContent = '';
+    for (const item of tab.list()) {
+      const li = document.createElement('li');
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'card';
+      b.dataset.item = item.id;
+      const has = available(item);
+      b.setAttribute('aria-pressed', String(equipped(tab, item)));
+      b.disabled = earned(item) && !has;
+      b.appendChild(tab.preview(item, !has));
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      const name = document.createElement('span');
+      name.className = 'name';
+      name.textContent = item.name;
+      const label = cardLabel(tab, item);
+      const req = document.createElement('span');
+      req.className = label.cls;
+      req.textContent = label.text;
+      meta.append(name, req);
+
+      if (tab.kind === 'bird' && (item.up || item.baseline)) {
+        const tr = document.createElement('span');
+        tr.className = 'trade';
+        // The baseline bird trades nothing, so it gets a neutral note
+        // rather than a red mark against flavour text.
+        if (item.baseline) tr.append(tag('even', item.baseline));
+        else tr.append(tag('up', item.up), tag('down', item.down));
+        meta.appendChild(tr);
+      }
+      b.appendChild(meta);
+
+      b.addEventListener('click', () => {
+        if (earned(item)) { if (has) equip(tab, item); return; }
+        if (owns(item)) { equip(tab, item); return; }
+        if (buy(item)) equip(tab, item);      // buying equips straight away
+        else buildSheet();                    // not enough coins: refresh the count
+      });
+
+      li.appendChild(b);
+      skinList.appendChild(li);
+    }
+  }
+
+  for (const b of document.querySelectorAll('#shop-tabs .tab')) {
+    b.addEventListener('click', () => { shopKind = b.dataset.kind; buildSheet(); });
+  }
+
+  function openSheet() { buildSheet(); sheet.hidden = false; document.getElementById('sheet-close').focus(); }
+  function closeSheet() { sheet.hidden = true; btnSkins.focus(); }
+
+  btnSkins.addEventListener('click', openSheet);
+  document.getElementById('sheet-close').addEventListener('click', closeSheet);
+
+  function setMuted(v) {
+    audio.muted = v;
+    store.set('muted', v);
+    music.set(!v && !!(profile && profile.music));
+    btnSound.setAttribute('aria-pressed', String(v));
+    btnSound.setAttribute('aria-label', v ? 'Unmute sound' : 'Mute sound');
+    if (!v) { audio.ensure(); audio.score(); }
+  }
+
+  btnSound.addEventListener('click', () => setMuted(!audio.muted));
+  btnSound.setAttribute('aria-pressed', String(audio.muted));
+  btnSound.setAttribute('aria-label', audio.muted ? 'Unmute sound' : 'Mute sound');
+
+  /* ══════════════════ settings ══════════════════ */
+
+  const btnGear = document.getElementById('btn-gear');
+  const bgSwatches = document.getElementById('bg-swatches');
+  const settingsList = document.getElementById('settings-list');
+
+  // A little strip of the sky itself — choosing a look by looking at it.
+  function skySwatch(phase) {
+    const c = document.createElement('canvas');
+    c.width = 120; c.height = 52;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    const sky = g.createLinearGradient(0, 0, 0, 52);
+    sky.addColorStop(0, phase.sky[0]);
+    sky.addColorStop(1, phase.sky[1]);
+    g.fillStyle = sky; g.fillRect(0, 0, 120, 52);
+    if (phase.star > 0.15) {
+      g.fillStyle = '#ffffff';
+      g.globalAlpha = phase.star;
+      for (let i = 0; i < 14; i++) g.fillRect((i * 37) % 118, (i * 23) % 30, 2, 2);
+      g.globalAlpha = 1;
+    }
+    g.fillStyle = phase.sun;
+    g.beginPath(); g.arc(96, 15, 8, 0, Math.PI * 2); g.fill();
+    g.fillStyle = phase.city; g.fillRect(8, 30, 16, 12); g.fillRect(30, 24, 12, 18); g.fillRect(48, 33, 18, 9);
+    g.fillStyle = phase.grass; g.fillRect(0, 42, 120, 4);
+    g.fillStyle = phase.dirt;  g.fillRect(0, 46, 120, 6);
+    return c;
+  }
+
+  function cyclingSwatch() {
+    const list = phaseList();
+    const c = document.createElement('canvas');
+    c.width = 120; c.height = 52;
+    const g = c.getContext('2d');
+    const band = 120 / list.length;
+    list.forEach((ph, i) => {
+      const sky = g.createLinearGradient(0, 0, 0, 52);
+      sky.addColorStop(0, ph.sky[0]);
+      sky.addColorStop(1, ph.sky[1]);
+      g.fillStyle = sky;
+      g.fillRect(i * band, 0, band + 1, 52);
+    });
+    g.fillStyle = 'rgba(0,0,0,.25)';
+    g.fillRect(0, 46, 120, 6);
+    return c;
+  }
+
+  function buildSettings() {
+    if (!bgSwatches) return;
+    const list = phaseList();
+    const names = (G.world && G.world.phaseNames) || [];
+    bgSwatches.textContent = '';
+
+    const make = (label, pressed, canvas, onPick) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'swatch';
+      b.setAttribute('aria-pressed', String(pressed));
+      b.appendChild(canvas);
+      b.appendChild(document.createTextNode(label));
+      b.addEventListener('click', onPick);
+      bgSwatches.appendChild(b);
+    };
+
+    make('Cycle', G.bg === 'cycle', cyclingSwatch(), () => setBackground('cycle'));
+    list.forEach((ph, i) => {
+      make(names[i] || ('Sky ' + (i + 1)), G.bg === i, skySwatch(ph), () => setBackground(i));
+    });
+
+    const note = document.getElementById('bg-note');
+    if (note) {
+      note.textContent = G.bg === 'cycle'
+        ? 'The sky drifts through ' + list.length + ' looks as you fly.'
+        : 'Held on one sky. It will not change during a run.';
+    }
+
+    // Sound lives here too, alongside its quick-access button.
+    settingsList.textContent = '';
+    settingsList.appendChild(toggleRow(
+      'Sound', audio.muted ? 'Off' : 'On', !audio.muted, () => {
+        setMuted(!audio.muted);
+        buildSettings();
+      }));
+
+    settingsList.appendChild(toggleRow(
+      'Music',
+      profile && profile.music ? 'A slow loop under the game' : 'Off',
+      !!(profile && profile.music),
+      () => {
+        if (!profile) return;
+        profile.music = !profile.music;
+        saveProfile();
+        music.set(profile.music && !audio.muted);
+        buildSettings();
+      }));
+
+    settingsList.appendChild(toggleRow(
+      'Haptics',
+      profile && profile.haptics ? 'Buzz on flap and crash' : 'Off — iPhones ignore this either way',
+      !!(profile && profile.haptics),
+      () => {
+        if (!profile) return;
+        profile.haptics = !profile.haptics;
+        saveProfile();
+        buzz(20);
+        buildSettings();
+      }));
+
+    settingsList.appendChild(toggleRow(
+      'Assist mode',
+      profile && profile.assist
+        ? 'Gentler flight — runs pay coins but set no record'
+        : 'Off — the original feel',
+      !!(profile && profile.assist),
+      () => {
+        if (!profile) return;
+        profile.assist = !profile.assist;
+        saveProfile();
+        buildSettings();
+      }));
+  }
+
+  function toggleRow(name, detail, on, onToggle) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'setting';
+    b.setAttribute('aria-pressed', String(on));
+    const meta = document.createElement('span');
+    meta.className = 'meta';
+    const n = document.createElement('span');
+    n.className = 'name';
+    n.textContent = name;
+    const d = document.createElement('span');
+    d.className = 'req';
+    d.textContent = detail;
+    meta.append(n, d);
+    const sw = document.createElement('span');
+    sw.className = 'switch';
+    b.append(meta, sw);
+    b.addEventListener('click', onToggle);
+    return b;
+  }
+
+  function setBackground(v) {
+    G.bg = v;
+    if (profile) { profile.bg = v; saveProfile(); }
+    buildSettings();
+  }
+
+  /* ── pause ────────────────────────────────────────────────────── */
+
+  const btnPause = document.getElementById('btn-pause');
+
+  function pauseRun() {
+    if (G.state !== PLAYING || G.paused) return;
+    G.paused = true;
+    pausedSheet.hidden = false;
+    document.getElementById('paused-resume').focus();
+  }
+
+  function resumeRun() {
+    G.paused = false;
+    pausedSheet.hidden = true;
+  }
+
+  function endRun() {
+    G.paused = false;
+    pausedSheet.hidden = true;
+    resetWorld();
+  }
+
+  btnPause.addEventListener('click', pauseRun);
+  document.getElementById('paused-resume').addEventListener('click', resumeRun);
+  document.getElementById('paused-quit').addEventListener('click', endRun);
+
+  // Leaving the tab mid-run should not cost the run.
+  addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') pauseRun();
+  });
+
+  function openSettings() { buildSettings(); settingsSheet.hidden = false; document.getElementById('settings-close').focus(); }
+  function closeSettings() { settingsSheet.hidden = true; btnGear.focus(); }
+
+  btnGear.addEventListener('click', openSettings);
+  document.getElementById('settings-close').addEventListener('click', closeSettings);
+
+  /* ══════════════════ stats ══════════════════
+
+     Four of these numbers have been recorded since the shop was built and
+     shown nowhere: pipes, power-ups, the longest flight, and the medal case
+     broken out by tier rather than summed.
+
+     Only one thing here is a chart. Totals are totals — a bar chart of
+     "games played" says nothing a number does not. The run history is the
+     exception, because it is the only figure that is about change over
+     time. The medal case stays a labelled list on purpose: four coloured
+     bars for bronze/silver/gold/platinum would lean on exactly the hues a
+     colour-blind reader cannot separate, and the label carries it instead. */
+  const btnStats = document.getElementById('btn-stats');
+  const statsSheet = document.getElementById('stats');
+  const statsBody = document.getElementById('stats-body');
+
+  const MEDAL_ROWS = [['platinum', 'Platinum'], ['gold', 'Gold'],
+                      ['silver', 'Silver'], ['bronze', 'Bronze']];
+
+  // Ticks at 60Hz into something a person reads.
+  function asClock(ticks) {
+    const total = Math.round(ticks / 60);
+    const m = Math.floor(total / 60), sec = total % 60;
+    return m ? m + 'm ' + sec + 's' : sec + 's';
+  }
+
+  function tile(host, value, label, wide) {
+    const el = document.createElement('div');
+    el.className = wide ? 'tile wide' : 'tile';
+    const b = document.createElement('b');
+    b.textContent = String(value);
+    const sp = document.createElement('span');
+    sp.textContent = label;
+    el.append(b, sp);
+    host.appendChild(el);
+    return el;
+  }
+
+  function buildStats() {
+    statsBody.textContent = '';
+    if (!profile) return;
+    const st = profile.stats;
+    const runs = (st.recent || []);
+
+    const head = document.createElement('div');
+    head.className = 'tiles';
+    tile(head, profile.best, 'BEST', true);
+    tile(head, 'LV ' + levelFor(profile.xp || 0), 'LEVEL');
+    tile(head, st.games, st.games === 1 ? 'GAME' : 'GAMES');
+    tile(head, profile.coins, 'COINS');
+    statsBody.appendChild(head);
+
+    /* The run history. One series, so no legend — the heading names it.
+       Bars sit on the baseline and are rounded only at the data end. */
+    const title = document.createElement('p');
+    title.className = 'sheet-section';
+    title.textContent = 'LAST ' + Math.min(RECENT_MAX, Math.max(runs.length, 1)) + ' RUNS';
+    statsBody.appendChild(title);
+
+    if (!runs.length) {
+      const none = document.createElement('p');
+      none.className = 'hint';
+      none.textContent = 'No finished runs yet. Fly one and it will show up here.';
+      statsBody.appendChild(none);
+    } else {
+      const top = Math.max(...runs, 1);
+      const avg = runs.reduce((a, b) => a + b, 0) / runs.length;
+      const wrap = document.createElement('div');
+      wrap.className = 'chart-wrap';
+
+      const list = document.createElement('ul');
+      list.className = 'chart';
+      runs.forEach((v, i) => {
+        const li = document.createElement('li');
+        li.style.height = Math.max(2, Math.round((v / top) * 74)) + 'px';
+        li.title = 'Run ' + (i + 1) + ': ' + v;
+        // Every bar carries its number for a screen reader, so the chart is
+        // a list of values as well as a picture of them.
+        const sr = document.createElement('span');
+        sr.className = 'sr';
+        sr.textContent = 'Run ' + (i + 1) + ': ' + v;
+        li.appendChild(sr);
+        list.appendChild(li);
+      });
+      wrap.appendChild(list);
+
+      // The average, as a recessive rule rather than another colour.
+      const rule = document.createElement('div');
+      rule.className = 'chart-rule';
+      rule.style.bottom = Math.round((avg / top) * 74) + 'px';
+      wrap.appendChild(rule);
+      statsBody.appendChild(wrap);
+
+      // Selective direct labels: the ends of the story, not every point.
+      const foot = document.createElement('div');
+      foot.className = 'chart-foot';
+      const mean = document.createElement('span');
+      mean.textContent = '- - -  avg ' + avg.toFixed(1);
+      const latest = document.createElement('span');
+      latest.textContent = 'best ' + top + '  ·  latest ' + runs[runs.length - 1];
+      foot.append(mean, latest);
+      statsBody.appendChild(foot);
+    }
+
+    const totals = document.createElement('p');
+    totals.className = 'sheet-section';
+    totals.textContent = 'ALL TIME';
+    statsBody.appendChild(totals);
+
+    const grid = document.createElement('div');
+    grid.className = 'tiles';
+    tile(grid, st.pipes, 'PIPES');
+    tile(grid, st.powers, 'POWER-UPS');
+    tile(grid, asClock(st.longest), 'LONGEST');
+    tile(grid, st.roosts, st.roosts === 1 ? 'ROOST' : 'ROOSTS');
+    tile(grid, runs.length ? (runs.reduce((a, b) => a + b, 0) / runs.length).toFixed(1) : '—', 'AVG RUN');
+    tile(grid, st.games ? (st.pipes / st.games).toFixed(1) : '—', 'PIPES/RUN');
+    statsBody.appendChild(grid);
+
+    const medals = document.createElement('p');
+    medals.className = 'sheet-section';
+    medals.textContent = 'MEDAL CASE';
+    statsBody.appendChild(medals);
+
+    const case_ = document.createElement('ul');
+    case_.className = 'sheet-list';
+    for (const [key, name] of MEDAL_ROWS) {
+      const li = document.createElement('li');
+      const row = document.createElement('div');
+      row.className = 'card';
+      row.style.cursor = 'default';
+      const n = document.createElement('span');
+      n.className = 'name';
+      n.textContent = name;
+      const c = document.createElement('span');
+      c.className = 'req';
+      c.style.marginLeft = 'auto';
+      c.textContent = String(st[key] || 0);
+      row.append(n, c);
+      li.appendChild(row);
+      case_.appendChild(li);
+    }
+    statsBody.appendChild(case_);
+  }
+
+  function openStats() {
+    buildStats();
+    statsSheet.hidden = false;
+    document.getElementById('stats-close').focus();
+  }
+  function closeStats() { statsSheet.hidden = true; btnStats.focus(); }
+
+  btnStats.addEventListener('click', openStats);
+  document.getElementById('stats-close').addEventListener('click', closeStats);
+
+  /* ══════════════════ players ══════════════════ */
+
+  const btnPlayer = document.getElementById('btn-player');
+  const playerList = document.getElementById('player-list');
+  const storageNote = document.getElementById('storage-note');
+  const fileInput = document.getElementById('player-file');
+  let editingId = null;       // profile whose name is being typed
+  let armedDelete = null;     // profile whose delete button is armed
+
+  function updateStorageNote() {
+    if (!storageNote) return;
+    if (vault.kind === 'memory') {
+      storageNote.textContent = 'This browser is blocking storage, so scores last only until you close the tab.';
+      storageNote.className = 'hint warn';
+    } else if (persisted) {
+      storageNote.textContent = 'Saved on this device. The browser has agreed not to clear it.';
+      storageNote.className = 'hint';
+    } else {
+      storageNote.textContent = 'Saved on this device, but the browser may still clear it. Add DreyBird to your home screen, or keep a copy with Save file.';
+      storageNote.className = 'hint warn';
+    }
+  }
+
+  // A player's row shows what they actually fly in — bird and hat.
+  function playerPreview(p) {
+    const skin = byId(SKINS, p.skin);
+    const hat = byId(HATS, p.hat);
+    const [c, g] = previewCanvas(PV_W, PV_H);
+    const y = PV_H / 2 + 6;
+    drawBird(g, PV_W / 2, y, 0, skin, 0, skin.alpha || 1);
+    drawHat(g, PV_W / 2, y, 0, hat, null);
+    return c;
+  }
+
+  function summarise(p) {
+    const st = p.stats;
+    const medals = st.platinum + st.gold + st.silver + st.bronze;
+    const bits = ['Lv ' + levelFor(p.xp || 0), 'Best ' + p.best,
+                  st.games + (st.games === 1 ? ' game' : ' games')];
+    if (medals) bits.push(medals + (medals === 1 ? ' medal' : ' medals'));
+    return bits.join('  ·  ');
+  }
+
+  function buildPlayers() {
+    if (!playerList) return;
+    playerList.textContent = '';
+
+    for (const p of profiles) {
+      const active = profile && p.id === profile.id;
+      const li = document.createElement('li');
+      li.className = 'player-row';
+
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'card';
+      b.setAttribute('aria-pressed', String(active));
+      b.appendChild(playerPreview(p));
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+
+      if (editingId === p.id) {
+        const input = document.createElement('input');
+        input.className = 'name-input';
+        input.type = 'text';
+        input.maxLength = MAX_NAME;
+        input.value = p.name;
+        input.setAttribute('aria-label', 'Player name');
+        const commit = () => {
+          const v = input.value.trim().slice(0, MAX_NAME);
+          if (v) { p.name = v; vault.putProfile(JSON.parse(JSON.stringify(p))); }
+          editingId = null;
+          buildPlayers();
+        };
+        input.addEventListener('keydown', e => {
+          e.stopPropagation();
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { editingId = null; buildPlayers(); }
+        });
+        input.addEventListener('blur', commit);
+        input.addEventListener('click', e => e.stopPropagation());
+        meta.appendChild(input);
+        setTimeout(() => { input.focus(); input.select(); }, 0);
+      } else {
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = p.name;
+        meta.appendChild(name);
+      }
+
+      const req = document.createElement('span');
+      req.className = 'req';
+      req.textContent = summarise(p);
+      meta.appendChild(req);
+      b.appendChild(meta);
+
+      b.addEventListener('click', () => {
+        if (editingId === p.id) return;
+        switchProfile(p.id);
+      });
+      li.appendChild(b);
+
+      // Rename and delete belong to the row you are already on, so there
+      // is no second dialog to get lost in.
+      if (active && editingId !== p.id) {
+        const tools = document.createElement('div');
+        tools.className = 'row-tools';
+
+        const rename = document.createElement('button');
+        rename.type = 'button';
+        rename.className = 'tool';
+        rename.textContent = 'Rename';
+        rename.addEventListener('click', () => { armedDelete = null; editingId = p.id; buildPlayers(); });
+
+        const del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'tool';
+        del.textContent = armedDelete === p.id ? 'Delete for good?' : 'Delete';
+        if (armedDelete === p.id) del.dataset.armed = '1';
+        del.disabled = profiles.length < 2;      // someone has to be playing
+        del.addEventListener('click', () => {
+          if (armedDelete !== p.id) { armedDelete = p.id; buildPlayers(); return; }
+          armedDelete = null;
+          deleteProfile(p.id);
+        });
+
+        tools.append(rename, del);
+        li.appendChild(tools);
+      }
+
+      playerList.appendChild(li);
+    }
+  }
+
+  function switchProfile(id) {
+    const p = profiles.find(x => x.id === id);
+    if (!p || (profile && p.id === profile.id)) return;
+    profile = p;
+    editingId = armedDelete = null;
+    vault.setActive(p.id);
+    applyProfile();
+    resetWorld();
+    buildSheet();
+    buildPlayers();
+  }
+
+  function createProfile(name) {
+    const p = newProfile(name || 'Player ' + (profiles.length + 1));
+    profiles.push(p);
+    vault.putProfile(p);
+    profile = p;
+    vault.setActive(p.id);
+    applyProfile();
+    resetWorld();
+    editingId = p.id;
+    buildSheet();
+    buildPlayers();
+    return p;
+  }
+
+  function deleteProfile(id) {
+    if (profiles.length < 2) return;
+    const wasActive = profile && profile.id === id;
+    profiles = profiles.filter(p => p.id !== id);
+    vault.delProfile(id);
+    if (wasActive) {
+      profile = profiles[0];
+      vault.setActive(profile.id);
+      applyProfile();
+      resetWorld();
+      buildSheet();
+    }
+    buildPlayers();
+  }
+
+  /* Export/import is the only thing that survives a cleared browser or a
+     lost phone, which is what makes staying local defensible. */
+  function exportSave() {
+    return { app: 'dreybirds-world', version: 1, exported: Date.now(), profiles: profiles.map(sane) };
+  }
+
+  /* ── knowing whether the file on disk is current ──────────────────
+     This is change detection, not tamper detection. A hash computed in a
+     page anyone can read proves nothing about who wrote a file; it only
+     tells you whether what you have matches what you saved. That is the
+     actual problem — saving repeatedly because you cannot tell. */
+  function fingerprint(payload) {
+    const text = JSON.stringify(payload.profiles);
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 0x01000193);
+      h2 = Math.imul(h2 + c, 0x85ebca6b) ^ (h2 >>> 13);
+    }
+    return ((h1 >>> 0).toString(36) + (h2 >>> 0).toString(36));
+  }
+
+  let saveMark = null;      // { print, at, games } from the last file written
+
+  function saveState() {
+    const print = fingerprint(exportSave());
+    if (!saveMark) return { state: 'never', print };
+    if (saveMark.print === print) return { state: 'current', print, at: saveMark.at };
+    const runs = Math.max(0, totalGames() - (saveMark.games || 0));
+    return { state: 'stale', print, at: saveMark.at, runs };
+  }
+
+  const totalGames = () => profiles.reduce((n, p) => n + (p.stats ? p.stats.games : 0), 0);
+
+  function markSaved(print) {
+    saveMark = { print: print, at: Date.now(), games: totalGames() };
+    vault.setMeta('saveMark', JSON.parse(JSON.stringify(saveMark)));
+    refreshSaveButton();
+  }
+
+  function ago(ts) {
+    const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (s < 60) return 'just now';
+    const m = Math.round(s / 60);
+    if (m < 60) return m + (m === 1 ? ' minute ago' : ' minutes ago');
+    const h = Math.round(m / 60);
+    if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+    const d = Math.round(h / 24);
+    return d + (d === 1 ? ' day ago' : ' days ago');
+  }
+
+  function importSave(data) {
+    if (!data || data.app !== 'dreybirds-world' || !Array.isArray(data.profiles)) {
+      return { ok: false, added: 0, merged: 0, reason: 'That file is not a DreyBird save.' };
+    }
+    let added = 0, merged = 0;
+    for (const raw of data.profiles) {
+      const incoming = sane(raw);
+      const mine = profiles.find(p => p.id === incoming.id);
+      if (!mine) {
+        profiles.push(incoming);
+        vault.putProfile(incoming);
+        added++;
+      } else {
+        // Never silently lose a record: keep the better of each number, and
+        // the union of purchases. A restored backup must not repossess
+        // something already bought, or hand back coins already spent.
+        mine.best = Math.max(mine.best, incoming.best);
+        mine.coins = Math.max(mine.coins, incoming.coins);
+        mine.xp = Math.max(mine.xp, incoming.xp);
+        for (const f of incoming.feathers) {
+          if (mine.feathers.indexOf(f) < 0) mine.feathers.push(f);
+        }
+        /* Read before the loop below writes it: merging the totals first
+           would raise this to the incoming count and make the comparison
+           that follows always false. */
+        const minePlayed = mine.stats.games || 0;
+        for (const k of Object.keys(mine.stats)) {
+          // `recent` is a list, not a total — Math.max on two arrays is NaN,
+          // which would quietly wipe every stat beside it.
+          if (k === 'recent') continue;
+          mine.stats[k] = Math.max(mine.stats[k], incoming.stats[k] || 0);
+        }
+        /* A run history cannot be merged the way a total can: interleaving
+           two of them would invent an order that never happened. Keep the
+           one belonging to whoever played more, which is the fuller record. */
+        if ((incoming.stats.games || 0) > minePlayed) {
+          mine.stats.recent = (incoming.stats.recent || []).slice(-RECENT_MAX);
+        }
+        for (const key of incoming.owned) {
+          if (mine.owned.indexOf(key) < 0) mine.owned.push(key);
+        }
+        mine.granted = mine.granted || incoming.granted;
+        if (mine.name !== incoming.name && incoming.name) mine.name = incoming.name;
+        vault.putProfile(JSON.parse(JSON.stringify(mine)));
+        merged++;
+      }
+    }
+    applyProfile();
+    buildSheet();
+    buildPlayers();
+    return { ok: true, added: added, merged: merged };
+  }
+
+  function openPlayers() {
+    editingId = armedDelete = null;
+    buildPlayers();
+    refreshSaveButton();
+    updateStorageNote();
+    askPersist();
+    playersSheet.hidden = false;
+    document.getElementById('players-close').focus();
+  }
+  function closePlayers() {
+    editingId = armedDelete = null;
+    playersSheet.hidden = true;
+    btnPlayer.focus();
+  }
+
+  btnPlayer.addEventListener('click', openPlayers);
+  document.getElementById('players-close').addEventListener('click', closePlayers);
+  document.getElementById('player-new').addEventListener('click', () => createProfile());
+
+  // Embedded viewers (the published artifact among them) refuse
+  // page-initiated downloads, so a download link there is a dead button.
+  // Fall back to the clipboard, which works everywhere.
+  const canDownload = window.top === window.self;
+  const exportBtn = document.getElementById('player-export');
+
+  // A real overwrite, where the browser has the API for it. That is
+  // desktop Chromium; iOS Safari does not have it and Android Chrome
+  // very likely does not either, so this is feature-detected and the
+  // download path stays the honest default rather than a sad fallback.
+  const canPickFile = canDownload && typeof window.showSaveFilePicker === 'function';
+  let fileHandle = null;
+
+  function stamp() {
+    const d = new Date();
+    const p2 = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) +
+           '-' + p2(d.getHours()) + p2(d.getMinutes());
+  }
+
+  // The button says what is actually true, so there is no reason to save
+  // "just in case" — which is what produced the pile of copies.
+  function refreshSaveButton() {
+    if (!exportBtn) return;
+    if (!canDownload) { exportBtn.textContent = 'Copy save'; return; }
+    const st = saveState();
+    exportBtn.textContent =
+      st.state === 'current' ? 'Saved ✓' :
+      st.state === 'never' ? 'Save file' :
+      st.runs > 0 ? 'Save file (' + st.runs + ')' : 'Save file *';
+    exportBtn.title =
+      st.state === 'current' ? 'Up to date — saved ' + ago(st.at) :
+      st.state === 'never' ? 'This player has never been saved to a file' :
+      st.runs + (st.runs === 1 ? ' run' : ' runs') + ' since your last save, ' + ago(st.at);
+    exportBtn.dataset.state = st.state;
+  }
+
+  async function writeThroughHandle(text) {
+    try {
+      if (fileHandle) {
+        const perm = await fileHandle.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted') {
+          const asked = await fileHandle.requestPermission({ mode: 'readwrite' });
+          if (asked !== 'granted') fileHandle = null;
+        }
+      }
+      if (!fileHandle) {
+        fileHandle = await window.showSaveFilePicker({
+          suggestedName: 'dreybird-' + stamp() + '.json',
+          types: [{ description: 'DreyBird save', accept: { 'application/json': ['.json'] } }]
+        });
+        vault.setMeta('fileHandle', fileHandle);
+      }
+      const w = await fileHandle.createWritable();
+      await w.write(text);
+      await w.close();
+      return fileHandle.name || 'your file';
+    } catch (e) {
+      if (e && e.name === 'AbortError') return null;      // picker dismissed
+      fileHandle = null;
+      throw e;
+    }
+  }
+
+  exportBtn.addEventListener('click', async () => {
+    const payload = exportSave();
+    const text = JSON.stringify(payload, null, 2);
+    const print = fingerprint(payload);
+
+    if (!canDownload) {
+      try {
+        await navigator.clipboard.writeText(text);
+        markSaved(print);
+        storageNote.textContent = 'Save copied to the clipboard. Paste it somewhere safe.';
+        storageNote.className = 'hint';
+      } catch (e) {
+        storageNote.textContent = 'This viewer blocks both downloads and the clipboard. Open the game in its own tab to save a copy.';
+        storageNote.className = 'hint warn';
+      }
+      return;
+    }
+
+    if (canPickFile) {
+      try {
+        const name = await writeThroughHandle(text);
+        if (name === null) return;                        // they changed their mind
+        markSaved(print);
+        storageNote.textContent = 'Saved over ' + name + '.';
+        storageNote.className = 'hint';
+        return;
+      } catch (e) {
+        storageNote.textContent = 'Could not write that file, so here is a download instead.';
+        storageNote.className = 'hint warn';
+        // and fall through to the download
+      }
+    }
+
+    // Dated, so copies are orderable instead of an anonymous (1), (2) pile.
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'dreybird-' + stamp() + '.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    markSaved(print);
+    if (!canPickFile) {
+      storageNote.textContent = 'Saved as ' + a.download + '. This browser cannot overwrite an existing file, so each save is a new one.';
+      storageNote.className = 'hint';
+    }
+  });
+
+  document.getElementById('player-import').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let result;
+      try { result = importSave(JSON.parse(String(reader.result))); }
+      catch (e) { result = { ok: false, reason: 'That file could not be read.' }; }
+      if (!result.ok) {
+        storageNote.textContent = result.reason;
+        storageNote.className = 'hint warn';
+      } else {
+        storageNote.textContent = 'Loaded ' + result.added + ' new, updated ' + result.merged + '.';
+        storageNote.className = 'hint';
+      }
+    };
+    reader.readAsText(file);
+    fileInput.value = '';
+  });
+
+  /* ══════════════════ boot ══════════════════ */
+
+  // Storage is async; the game loop is not. Read everything once, here,
+  // and hand the loop a plain object it can touch synchronously.
+  async function boot() {
+    await vault.open();
+    const state = await vault.load();
+    profiles = (state.profiles || []).map(sane);
+    profiles.sort((a, b) => a.created - b.created);
+
+    if (!profiles.length) {
+      // First run of this version: carry over whatever the old
+      // single-player build saved, so nobody loses a high score.
+      const legacyBest = store.get('best', null);
+      const legacySkin = store.get('skin', null);
+      const first = newProfile('Player 1');
+      if (typeof legacyBest === 'number' && legacyBest > 0) first.best = legacyBest;
+      if (typeof legacySkin === 'string') first.skin = legacySkin;
+      profiles.push(first);
+      await vault.putProfile(first);
+      await vault.setActive(first.id);
+    }
+
+    profile = profiles.find(p => p.id === state.activeId) || profiles[0];
+    if (profile.id !== state.activeId) vault.setActive(profile.id);
+
+    // Anyone who played before the shop existed is paid for that play,
+    // exactly once — the `granted` flag is what stops a second payout.
+    for (const p of profiles) {
+      if (backPay(p) > 0) vault.putProfile(JSON.parse(JSON.stringify(p)));
+    }
+
+    applyProfile();
+
+    // What we last wrote to a file, and where, so the button can tell the
+    // truth on the very first frame rather than after the first save.
+    try {
+      const mark = await vault.getMeta('saveMark');
+      if (mark && typeof mark.print === 'string') saveMark = mark;
+      const handle = await vault.getMeta('fileHandle');
+      if (handle && typeof handle.createWritable === 'function') fileHandle = handle;
+    } catch (e) { /* a fresh install, or a store that cannot hold handles */ }
+
+    try {
+      if (navigator.storage && navigator.storage.persisted) persisted = await navigator.storage.persisted();
+    } catch (e) { persisted = false; }
+
+    buildSheet();
+    buildPlayers();
+    buildSettings();
+    refreshSaveButton();
+    music.on = !!(profile && profile.music);
+    updateStorageNote();
+    resetWorld();
+
+    const go = () => requestAnimationFrame(loop);
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('12px "Press Start 2P"').then(go, go);
+    } else {
+      go();
+    }
+
+    // Hook for the headless test harness — lets a test drive the exact same
+    // loop with synthetic timestamps instead of real frames. Published only
+    // once boot has finished, so a test that sees it sees loaded profiles.
+    window.__dreybird = {
+      W, H, GY, SPEED, SPACING, PIPE_W, GAP, PU_TICKS,
+      G, bird, pipes, powers,
+      frame, tick, flap, press, resetWorld, startPlay, drawBird,
+      states: { READY, PLAYING, DYING, OVER },
+      detach() { started = false; acc = 0; },
+      // profiles
+      vault,
+      profiles: () => profiles,
+      active: () => profile,
+      createProfile, switchProfile, deleteProfile, exportSave, importSave,
+      saveState, fingerprint, markSaved, refreshSaveButton,
+      crashInfo: () => ({ crashed: crashed, count: crashCount }),
+      music,
+      breakFrame: n => { window.__breakFrames = n; },
+      saveButtonText: () => document.getElementById('player-export').textContent,
+      // shop
+      SKINS, HATS, TRAILS, WORLDS,
+      coins: () => (profile ? profile.coins : 0),
+      owns, available, buy,
+      equip: (kind, id) => {
+        const tab = TABS.find(t => t.kind === kind);
+        const item = tab.list().find(x => x.id === id);
+        if (tab && item) equip(tab, item);
+      },
+      setTab: k => { shopKind = k; buildSheet(); },
+      setBackground, phaseList, phaseNow,
+      pauseRun, resumeRun, endRun,
+      physics: () => ({ gravity: G.gravity, flapV: G.flapV, gap: G.gap, speed: G.speed,
+                        maxVy: G.maxVy, hitW: G.hitW, hitH: G.hitH, puTicks: G.puTicks,
+                        shieldHits: G.shieldHits, coinMul: G.coinMul, xpMul: G.xpMul,
+                        assist: G.runAssist }),
+      paused: () => G.paused,
+      openSettings, closeSettings, openStats, closeStats, buildStats,
+      seed: () => G.seed,
+      trailParticles: () => trail,
+      PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
+      PORTAL_START, PORTAL_H, RING_R, PULL_RANGE, ROOST_TICKS, ROOST_COINS, ROOST_COIN,
+      roostCoins: () => roostCoins,
+      // Without a way to place one, testing the door means flying 15+ pipes
+      // and hitting a 32px target — expensive, and flaky enough to be useless.
+      forcePortal: n => { G.portalAt = null; G.forcePortalAt = n; },   // -1 restores the seed
+      inRoost: () => !!G.roost,
+      roostInfo: () => (G.roost ? { t: G.roost.t, got: G.roost.got } : null),
+      run: () => ({ pipeIndex: G.pipeIndex, pattern: G.pattern && G.pattern.id,
+                    gust: G.gust && { at: G.gust.at, until: G.gust.until, force: G.gust.force },
+                    fog: G.fog && { until: G.fog.until, y: G.fog.y } }),
+      COIN_PIPE, COIN_POWER, MEDAL_BONUS,
+      FEATHERS, TRAIT_DIRS, SLOT_LEVELS,
+      xpForLevel, levelFor, levelProgress, runXp, slotsAt,
+      traitsNow, equippedFeathers,
+      xp: () => (profile ? profile.xp : 0),
+      level: () => levelFor(profile ? profile.xp : 0),
+      openPlayers, closePlayers,
+      storage: () => ({ backend: vault.kind, persisted: persisted,
+                        db: DB_NAME, ls: LS_PREFIX, vaultKey: LS_VAULT }),
+      flush: () => vault.flush()
+    };
+  }
+
+  boot();
+})();
+</script>
+
+<script>
+/* Packaging: manifest, service worker and the install prompt.
+   Kept apart from the game, and inert wherever the packaged files don't
+   exist — a file:// double-click or the published artifact — so the same
+   index.html works in all three places. */
+(() => {
+  'use strict';
+
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (standalone) document.documentElement.dataset.standalone = '1';
+
+  const httpish = location.protocol === 'http:' || location.protocol === 'https:';
+  if (!httpish || window.top !== window.self) return;
+
+  const installBtn = document.getElementById('install');
+  const iosHint = document.getElementById('ios-install');
+
+  // Probe rather than link: a static <link rel="manifest"> that 404s would
+  // log an error everywhere the file isn't served. A failed fetch is quiet.
+  fetch('manifest.webmanifest', { method: 'HEAD' }).then(res => {
+    if (!res.ok) return;
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = 'manifest.webmanifest';
+    document.head.appendChild(link);
+
+    // iOS never fires beforeinstallprompt, so it gets the manual recipe.
+    const iOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (iOS && !standalone && iosHint) iosHint.hidden = false;
+  }).catch(() => {});
+
+  if ('serviceWorker' in navigator) {
+    addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+  }
+
+  let deferred = null;
+  addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferred = e;
+    if (installBtn) installBtn.hidden = false;
+  });
+
+  if (installBtn) {
+    installBtn.addEventListener('click', () => {
+      if (!deferred) return;
+      installBtn.hidden = true;
+      deferred.prompt();
+      Promise.resolve(deferred.userChoice).catch(() => {}).then(() => { deferred = null; });
+    });
+  }
+
+  addEventListener('appinstalled', () => {
+    if (installBtn) installBtn.hidden = true;
+    if (iosHint) iosHint.hidden = true;
+  });
+})();
+</script>

@@ -1,0 +1,27 @@
+{
+  "name": "dreybirds-world",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DreyBird's World \u2014 an adventure across the pipe-lands.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "test": "node test/run-all.mjs",
+    "test:smoke": "node test/smoke.mjs",
+    "test:pwa": "node test/pwa.mjs",
+    "test:profiles": "node test/profiles.mjs",
+    "test:cosmetics": "node test/cosmetics.mjs",
+    "test:determinism": "node test/determinism.mjs",
+    "test:comfort": "node test/comfort.mjs",
+    "test:dynamics": "node test/dynamics.mjs",
+    "test:progression": "node test/progression.mjs",
+    "test:crash": "node test/crash.mjs",
+    "icons": "node test/make-icons.mjs",
+    "test:polish": "node test/polish.mjs",
+    "test:portal": "node test/portal.mjs",
+    "test:stats": "node test/stats.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.56.1"
+  }
+}
