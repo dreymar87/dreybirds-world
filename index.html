@@ -2099,7 +2099,7 @@
             'I will pull these brambles apart for you.'],
     again: ['Three seeds. They caught in the air, so look up.'],
     thanks: ['He turns them over, satisfied.',
-             'That is the lot. Mind the reeds — it is close flying.',
+             'That is the lot. Mind the reeds - it is close flying.',
              'The brambles part with a dry crack.'],
     after:  ['Straight on east, and good luck to you.']
   };
@@ -2307,6 +2307,42 @@
   ctx.imageSmoothingEnabled = false;
 
   function px(c, size) { c.font = size + 'px "Press Start 2P", ui-monospace, monospace'; }
+
+  /* Canvas does not wrap: fillText draws the whole string on one line and
+     lets it run off both edges of a centred layout. Every string in the game
+     used to be a HUD label of a few characters, so it never came up; a world
+     with people in it is mostly dialogue, so it comes up immediately.
+
+     Measured with measureText rather than counted in characters, because the
+     pixel font may not be there. Its stylesheet is promoted from media=print
+     only after boot and gives up after three seconds on a network that never
+     answers, so the fallback metrics are exactly the case the game already
+     goes out of its way to survive. */
+  function wrapLines(c, str, maxWidth, size) {
+    px(c, size);
+    const words = String(str).split(' ');
+    const out = [];
+    let line = '';
+    for (const w of words) {
+      const next = line ? line + ' ' + w : w;
+      if (line && c.measureText(next).width > maxWidth) {
+        out.push(line);
+        line = w;
+      } else {
+        line = next;
+      }
+      // A single token wider than the box goes on its own line rather than
+      // looping forever looking for a break that is not there.
+      while (c.measureText(line).width > maxWidth && line.length > 1) {
+        let cut = line.length - 1;
+        while (cut > 1 && c.measureText(line.slice(0, cut)).width > maxWidth) cut--;
+        out.push(line.slice(0, cut));
+        line = line.slice(cut);
+      }
+    }
+    if (line) out.push(line);
+    return out.length ? out : [''];
+  }
 
   function textOut(c, str, x, y, size, fill, outline, align) {
     px(c, size);
@@ -2672,15 +2708,21 @@
 
     if (E.saying) {
       const lines = E.saying, i = Math.min(E.line, lines.length - 1);
+      const pad = 14, inner = W - pad * 2 - 16;
+      const wrapped = wrapLines(ctx, lines[i], inner, 6);
+      const top = 228, lh = 14;
+      const h = 26 + wrapped.length * lh + 16;
       ctx.save();
       ctx.fillStyle = 'rgba(14,18,10,.86)';
-      ctx.fillRect(14, 228, W - 28, 62);
+      ctx.fillRect(pad, top, W - pad * 2, h);
       ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1;
-      ctx.strokeRect(14.5, 228.5, W - 29, 61);
+      ctx.strokeRect(pad + 0.5, top + 0.5, W - pad * 2 - 1, h - 1);
       ctx.restore();
-      textOut(ctx, lines[i], W / 2, 252, 6, '#f2ead8', '#20160a');
+      wrapped.forEach((ln, k) => {
+        textOut(ctx, ln, W / 2, top + 20 + k * lh, 6, '#f2ead8', '#20160a');
+      });
       textOut(ctx, i + 1 < lines.length ? 'TAP TO GO ON' : 'TAP TO CLOSE',
-        W / 2, 276, 5, 'rgba(255,255,255,.6)', '#20160a');
+        W / 2, top + h - 12, 5, 'rgba(255,255,255,.6)', '#20160a');
     } else if (nearThistle()) {
       textOut(ctx, 'TAP TO TALK', GLADE.thistle.x, GLADE.thistle.y - 34, 6,
         '#ffffff', '#20160a');
@@ -4296,7 +4338,8 @@
       land: () => G.explore,
       // Drives the thumb without a real pointer, for the checks that measure
       // what steering actually does to velocity.
-      GLADE, THISTLE,
+      GLADE, THISTLE, wrapLines,
+      speechWidth: () => W - 28 - 16,
       tapLand,
       holdAt: (x, y) => { hold.on = true; hold.x = x; hold.y = y; },
       letGo: () => { hold.on = false; },

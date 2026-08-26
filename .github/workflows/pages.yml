@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false          # one red suite should not hide the others
       matrix:
-        suite: [smoke, pwa, profiles, cosmetics, determinism, comfort, dynamics, progression, crash, polish, portal, stats]
+        suite: [smoke, pwa, profiles, cosmetics, determinism, comfort, dynamics, progression, crash, polish, portal, stats, world]
     steps:
       - uses: actions/checkout@v4
 
