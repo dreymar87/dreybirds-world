@@ -127,6 +127,9 @@
   .iconbtn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .iconbtn svg { width: 22px; height: 22px; display: block; }
   #stage[data-playing="1"] .iconbtn { opacity: .18; pointer-events: none; }
+  /* A land is not a run: you are meant to be able to leave it, so its
+     controls stay live rather than fading out the way they do mid-flight. */
+  #stage[data-land="1"] .iconbtn { opacity: 1; pointer-events: auto; }
   /* Once it has crashed none of these do anything, so stop offering them. */
   #stage[data-crashed="1"] .iconbtn { display: none; }
   #stage[data-crashed="1"] canvas { cursor: default; }
@@ -497,6 +500,12 @@
   <canvas id="game" width="576" height="1024" role="img" aria-label="DreyBird — tap to flap"></canvas>
 
   <div class="tools tools-left">
+  <button id="btn-world" class="iconbtn" type="button" aria-label="The lands">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20Z"></path>
+      <path d="M9 4v13.5M15 6.5V20"></path>
+    </svg>
+  </button>
   <button id="btn-player" class="iconbtn" type="button" aria-label="Players">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <circle cx="12" cy="8" r="3.6"></circle>
@@ -2809,7 +2818,7 @@
     // The title breathes rather than sitting dead on the screen.
     const lift = reduceMotion ? 0 : Math.sin(G.ticks / 34) * 3;
     textOut(ctx, 'DreyBird', W / 2, 128 + lift, 22, '#ffe07a', '#20160a');
-    textOut(ctx, 'A FLAPPY TRIBUTE', W / 2, 158 + lift * 0.5, 7, '#ffffff', '#20160a');
+    textOut(ctx, 'FIND THE SCATTERED FLOCK', W / 2, 158 + lift * 0.5, 7, '#ffffff', '#20160a');
     if (Math.floor(G.ticks / 26) % 2 === 0) {
       textOut(ctx, 'TAP TO FLAP', W / 2, 316, 11, '#ffffff', '#20160a');
     }
@@ -3069,6 +3078,7 @@
   const btnSound = document.getElementById('btn-sound');
 
   function syncStage() {
+    stage.dataset.land = G.mode === 'explore' ? '1' : '0';
     stage.dataset.playing = (G.state === PLAYING || G.state === DYING) ? '1' : '0';
   }
 
@@ -3732,6 +3742,16 @@
     document.getElementById('stats-close').focus();
   }
   function closeStats() { statsSheet.hidden = true; btnStats.focus(); }
+
+  /* The way into the lands. It is a toggle rather than a menu for now:
+     the campaign has exactly one land in it, so a map screen would be a
+     screen with one thing on it. */
+  const btnWorld = document.getElementById('btn-world');
+  btnWorld.addEventListener('click', () => {
+    audio.ensure();
+    if (G.mode === 'explore') { resetWorld(); }
+    else { resetWorld(); enterLand('glade'); }
+  });
 
   btnStats.addEventListener('click', openStats);
   document.getElementById('stats-close').addEventListener('click', closeStats);
