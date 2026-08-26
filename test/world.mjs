@@ -284,7 +284,7 @@ for (const blockFont of [false, true]) {
 
     // Home again, into the glade that was waiting.
     d.press();
-    const home = { mode: d.G.mode, opened: d.land().opened };
+    const home = { mode: d.G.mode, at: d.land().id, saved: pr.story.at };
 
     return { shutMode, shutX, opened, won, scoreAtWin, target, stillAlive, done, home,
              owned: pr.owned.slice(), flock: pr.story.flock.slice() };
@@ -298,8 +298,49 @@ for (const blockFont of [false, true]) {
     loop.stillAlive && loop.done, JSON.stringify({ alive: loop.stillAlive, done: loop.done }));
   check('Bluebird joins the flock', loop.flock.join() === 'sky' && loop.owned.join() === 'bird:sky',
     JSON.stringify({ owned: loop.owned, flock: loop.flock }));
-  check('and a tap takes him back to the glade, still open',
-    loop.home.mode === 'explore' && loop.home.opened === true, JSON.stringify(loop.home));
+  check('and a tap carries him ONWARD, not back where he started',
+    loop.home.mode === 'explore' && loop.home.at === 'bank',
+    JSON.stringify(loop.home));
+  await context.close();
+}
+
+// --- a passage goes somewhere; giving up goes back ------------------------
+{
+  const { context, page } = await fresh();
+  const both = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.story.glade = { got: [true, true, true], talked: 1, opened: true };
+
+    // Cleared: onward to the far side.
+    d.resetWorld(); d.enterLand('glade');
+    d.enterStage(d.STAGES.reeds);
+    let g = 0;
+    while (!d.stage().won && g++ < 20000) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+    for (let i = 0; i < 200; i++) d.tick();
+    d.press();
+    const won = { at: d.land().id, saved: pr.story.at };
+
+    // Given up on: back to the side he came from.
+    d.resetWorld(); d.enterLand('glade');
+    d.enterStage(d.STAGES.reeds);
+    d.endRun();
+    const quit = { at: d.land().id, saved: pr.story.at };
+
+    // And the map button returns him to wherever he actually is.
+    pr.story.at = 'bank';
+    d.resetWorld(); d.enterLand(pr.story.at);
+    const resumed = d.land().id;
+    return { won, quit, resumed };
+  });
+  check('clearing a passage puts him on the far side', both.won.at === 'bank',
+    JSON.stringify(both.won));
+  check('and the world remembers where he got to', both.won.saved === 'bank',
+    both.won.saved);
+  check('giving up returns him to the side he came from', both.quit.at === 'glade',
+    JSON.stringify(both.quit));
+  check('the map button goes to where he is, not always to the start',
+    both.resumed === 'bank', both.resumed);
   await context.close();
 }
 

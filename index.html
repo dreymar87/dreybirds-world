@@ -1325,9 +1325,20 @@
   /* The Glade. One screen, no camera: the whole place is the 288x512 the
      game already draws in, which is what lets a land exist at all without
      a viewport, a scroll offset, or a second coordinate system. */
-  const GLADE_PHASE = { sky0: '#8fd3f4', sky1: '#dff6e3', cloud: '#ffffff',
-                        city: '#7fae7a', dirt: '#8a6a3f', grass: '#5fa855',
-                        sun: '#fff3c8', star: 0 };
+  /* Lands, and the pipe-lands that join them. A stage has a `from` and a
+     `to`, because it is a passage rather than a room: clearing it has to put
+     you somewhere new. Sending you back where you started made the journey
+     into a loop with better manners. */
+  const LANDS = {
+    glade: { id: 'glade', name: 'THE GLADE', errand: true,
+             phase: { sky0: '#8fd3f4', sky1: '#dff6e3', cloud: '#ffffff',
+                      city: '#7fae7a', dirt: '#8a6a3f', grass: '#5fa855',
+                      sun: '#fff3c8', star: 0 } },
+    bank:  { id: 'bank', name: 'THE FAR BANK', errand: false, edge: true,
+             phase: { sky0: '#f6c48a', sky1: '#ffe9c9', cloud: '#fff2df',
+                      city: '#b08a63', dirt: '#7b5c3a', grass: '#8fa457',
+                      sun: '#fff0bd', star: 0 } }
+  };
   const GLADE = {
     thistle: { x: 70, y: 368, r: 40 },        // r: how near you must be to talk
     seeds: [{ x: 206, y: 132 }, { x: 108, y: 96 }, { x: 244, y: 292 }],
@@ -1341,7 +1352,7 @@
      level rather than rerolling one. */
   const STAGES = {
     reeds: { id: 'reeds', name: 'THE REEDS', seed: 0x7ee05, pipes: 16,
-             gap: 122, hazards: 0, bg: 0, back: 'glade', finds: 'sky' }
+             gap: 122, hazards: 0, bg: 0, from: 'glade', to: 'bank', finds: 'sky' }
   };
   const ARRIVE_GLIDE = 80;      // ticks of flying on before the panel
 
@@ -2104,14 +2115,15 @@
     if (bird.x < hw + 2) { bird.x = hw + 2; bird.vx = Math.max(bird.vx, 0); }
     if (bird.x > W - hw - 2) {
       // Open brambles make the east edge a door rather than a wall.
-      if (E.opened && GLADE.gate.x) { enterStage(STAGES.reeds); return; }
+      // Only the glade has a passage east; the bank is where it ends.
+      if (E.id === 'glade' && E.opened) { enterStage(STAGES.reeds); return; }
       bird.x = W - hw - 2; bird.vx = Math.min(bird.vx, 0);
     }
     if (bird.y < hh + 2) { bird.y = hh + 2; bird.vy = Math.max(bird.vy, 0); }
     if (bird.y > GY - hh) { bird.y = GY - hh; bird.vy = Math.min(bird.vy, 0); }
 
     // Seeds, on the same forgiving box the power-ups use.
-    GLADE.seeds.forEach((sd, i) => {
+    if (LANDS[E.id].errand) GLADE.seeds.forEach((sd, i) => {
       if (E.got[i]) return;
       if (Math.abs(sd.x - bird.x) < SEED_R + G.hitW / 2 &&
           Math.abs(sd.y - bird.y) < SEED_R + G.hitH / 2) {
@@ -2136,6 +2148,7 @@
 
   const gotAll = E => E.got.every(Boolean);
   const nearThistle = () =>
+    !!G.explore && LANDS[G.explore.id].errand &&
     Math.hypot(GLADE.thistle.x - bird.x, GLADE.thistle.y - bird.y) < GLADE.thistle.r;
 
   /* A short, still press. If he is already saying something, it advances;
@@ -2146,6 +2159,14 @@
     void x; void y;
     const E = G.explore;
     if (!E) return;
+    const land = LANDS[E.id];
+    if (E.t < 110) {
+      ctx.save();
+      ctx.globalAlpha = clamp(E.t < 80 ? 1 : 1 - (E.t - 80) / 30, 0, 1);
+      textOut(ctx, land.name, W / 2, 150, 12, '#ffe07a', '#20160a');
+      ctx.restore();
+    }
+
     if (E.saying) { advanceTalk(); return; }
     if (nearThistle()) startTalk();
   }
@@ -2257,23 +2278,21 @@
     if (st) enterStage(st);
   }
 
+  /* Onward if he made it, back where he came from if he gave up. A passage
+     that always returns you to its near side is not a passage. */
   function leaveStage() {
     const st = stageNow();
+    const won = G.stage && G.stage.won;
     G.stage = null;
     G.hazardMul = 1;
-    G.mode = 'explore';
-    // Back into the land that was waiting, at the west side, facing in.
+    enterLand(won && st && st.to ? st.to : (st ? st.from : 'glade'));
+    // In from the west, facing the way he is going.
     bird.x = 40; bird.px = 40;
-    bird.y = 240; bird.py = 240;
-    bird.vx = 0; bird.vy = 0;
-    bird.rot = 0; bird.prot = 0;
-    G.state = PLAYING;
-    void st;
-    syncStage();
   }
 
   function enterLand(id) {
     G.mode = 'explore';
+    if (profile) { profile.story.at = id; saveProfile(); }
     const kept = (profile && profile.story.glade) || null;
     G.explore = { id: id, t: 0,
                   got: kept ? kept.got.slice() : [false, false, false],
@@ -2877,9 +2896,38 @@
     ctx.restore();
   }
 
-  function drawGlade(alpha) {
+  /* The far bank. Sparse on purpose: it is where the world currently ends,
+     and saying so is better than a river that leads nowhere without
+     explanation. Bluebird is HERE rather than only named on a panel -- a bird
+     you rescued should be somewhere you can see him. */
+  function drawBank(E) {
+    void E;
+    const rest = SKINS.find(b => b.id === 'sky');
+    if (rest && profile && profile.story.flock.indexOf('sky') >= 0) {
+      const bob = reduceMotion ? 0 : Math.sin(G.ticks / 40) * 2;
+      drawBird(ctx, 214, 356 + bob, 0, rest, 0, 1);
+      textOut(ctx, 'BLUEBIRD', 214, 330, 6, '#cdefff', '#20160a');
+    }
+    // The edge of what exists. Better to name it than to let the player
+    // hunt for a way on that has not been built.
+    ctx.save();
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#7b5c3a'; ctx.lineWidth = 2;
+    ctx.setLineDash([6, 8]);
+    ctx.beginPath(); ctx.moveTo(W - 18, 24); ctx.lineTo(W - 18, GY); ctx.stroke();
+    ctx.restore();
+    textOut(ctx, 'THE WORLD ENDS HERE', W / 2, 96, 7, '#ffe07a', '#20160a');
+    for (const [k, ln] of wrapLines(ctx,
+      'For now. More of it is being built. The glade is west, back through the reeds.',
+      W - 56, 6).entries()) {
+      textOut(ctx, ln, W / 2, 116 + k * 13, 6, 'rgba(255,255,255,.8)', '#20160a');
+    }
+  }
+
+  function drawLand(alpha) {
     void alpha;
     const E = G.explore;
+    if (E.id === 'bank') { drawBank(E); return; }
     drawBrambles(E.opened);
     for (let i = 0; i < GLADE.seeds.length; i++) {
       if (!E.got[i]) drawSeed(GLADE.seeds[i], G.ticks);
@@ -3217,7 +3265,7 @@
   function render(alpha) {
     const by = lerp(bird.py, bird.y, alpha);
     const brot = lerp(bird.prot, bird.rot, alpha);
-    const ph = G.mode === 'explore' ? GLADE_PHASE : G.roost ? ROOST_PHASE : phaseNow();
+    const ph = G.mode === 'explore' ? LANDS[G.explore.id].phase : G.roost ? ROOST_PHASE : phaseNow();
 
     ctx.setTransform(RS, 0, 0, RS, 0, 0);
     if (G.shake > 0.2) {
@@ -3227,7 +3275,7 @@
     drawSky(ph);
 
     if (G.mode === 'explore') {
-      drawGlade(alpha);
+      drawLand(alpha);
     } else if (G.roost) {
       for (const c of roostCoins) if (!c.got) drawRoostCoin(c, lerp(c.px, c.x, alpha));
     } else {
@@ -4087,7 +4135,7 @@
   btnWorld.addEventListener('click', () => {
     audio.ensure();
     if (G.mode === 'explore') { resetWorld(); }
-    else { resetWorld(); enterLand('glade'); }
+    else { resetWorld(); enterLand((profile && profile.story.at) || 'glade'); }
   });
 
   btnStats.addEventListener('click', openStats);
@@ -4642,7 +4690,7 @@
       land: () => G.explore,
       // Drives the thumb without a real pointer, for the checks that measure
       // what steering actually does to velocity.
-      GLADE, THISTLE, STAGES, wrapLines,
+      LANDS, GLADE, THISTLE, STAGES, wrapLines,
       enterStage, leaveStage,
       stage: () => G.stage,
       speechWidth: () => W - 28 - 16,
