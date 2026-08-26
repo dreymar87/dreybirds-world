@@ -324,19 +324,126 @@ for (const blockFont of [false, true]) {
     for (let i = 0; i < 300 && d.G.score > 0; i++) d.tick();
 
     const after = { coins: pr.coins, xp: pr.xp, games: pr.stats.games };
-    // Back at the start of the same level, not on a game-over screen.
-    const restarted = d.G.mode === 'stage' && d.G.score === 0 && d.G.state === d.states.PLAYING;
+
+    /* Fallen, and WAITING. It used to restart here silently, which made a
+       death and a retry indistinguishable and turned the level into a loop
+       with no way out. Ticking on must leave it exactly where it is. */
+    const fellAt = { failed: d.stage().failed, reached: d.stage().reached,
+                     at: d.stage().failedAt };
+    for (let i = 0; i < 300; i++) d.tick();
+    /* The score not moving is too weak: it stayed put while the bird was
+       still being ticked in DYING and the fall re-registered every frame.
+       A frozen level means the moment it was lost stops moving too. */
+    const stillWaiting = d.stage().failed && d.G.score === fellAt.reached &&
+                         d.stage().failedAt === fellAt.at;
+
+    // And a tap is what starts it again, from the first pipe.
+    d.press();
+    const retried = d.G.mode === 'stage' && !d.stage().failed && d.G.score === 0;
+
     d.resetWorld(); d.enterLand('glade');
     const gladeAfter = JSON.stringify(d.land().got) + d.land().opened;
-    return { before, after, restarted, gladeBefore, gladeAfter };
+    return { before, after, fellAt, stillWaiting, retried, gladeBefore, gladeAfter };
   });
-  check('dying in a level restarts it rather than ending a run',
-    retry.restarted, JSON.stringify(retry.restarted));
+  check('dying in a level says so and waits, rather than looping in silence',
+    retry.fellAt.failed && retry.stillWaiting,
+    JSON.stringify({ ...retry.fellAt, stillWaiting: retry.stillWaiting }));
+  check('and a tap starts it again from the first pipe', retry.retried, String(retry.retried));
   check('and costs nothing — coins, XP and games are untouched',
     retry.before.coins === retry.after.coins && retry.before.xp === retry.after.xp &&
     retry.before.games === retry.after.games, JSON.stringify(retry));
   check('the glade is exactly where it was left',
     retry.gladeBefore === retry.gladeAfter, retry.gladeBefore + ' vs ' + retry.gladeAfter);
+  await context.close();
+}
+
+// --- there is always a way out of a level ---------------------------------
+// The failure this replaces was "you cannot stop", so these checks try to
+// leave rather than trusting that leaving is possible.
+{
+  const { context, page } = await fresh();
+  await page.evaluate(() => {
+    const d = __dreybird;
+    d.active().story.glade = { got: [true, true, true], talked: 1, opened: true };
+    d.resetWorld(); d.enterLand('glade');
+    d.enterStage(d.STAGES.reeds);
+    // Fall.
+    d.bird.y = d.GY; d.bird.vy = 25;
+    for (let i = 0; i < 200 && !d.stage().failed; i++) d.tick();
+  });
+  const fallen = await page.evaluate(() => !!__dreybird.stage().failed);
+  check('the level can be failed on purpose', fallen === true);
+
+  // Every control has to be reachable, or the exit is theoretical.
+  const bar = await page.evaluate(() => {
+    const btns = [...document.querySelectorAll('.iconbtn')]
+      .filter(b => b.offsetParent !== null)
+      .map(b => ({ id: b.id, r: b.getBoundingClientRect() }));
+    const blocked = btns.filter(b => {
+      const el = document.elementFromPoint(b.r.left + b.r.width / 2, b.r.top + b.r.height / 2);
+      return !el || !(el.id === b.id || el.closest('.iconbtn') === document.getElementById(b.id));
+    }).map(b => b.id);
+    const faded = btns.filter(b => parseFloat(getComputedStyle(
+      document.getElementById(b.id)).opacity) < 0.9).map(b => b.id);
+    return { count: btns.length, blocked, faded };
+  });
+  check('the controls are live and reachable while fallen',
+    bar.blocked.length === 0 && bar.faded.length === 0 && bar.count >= 5,
+    JSON.stringify(bar));
+
+  // The map button is the way home, clicked for real.
+  await page.click('#btn-world', { timeout: 3000 });
+  const home = await page.evaluate(() => {
+    const d = __dreybird;
+    return { mode: d.G.mode, opened: d.land() ? d.land().opened : null,
+             got: d.land() ? d.land().got.filter(Boolean).length : -1 };
+  });
+  check('the map button leaves the level for the glade, exactly as it was',
+    home.mode === 'explore' && home.opened === true && home.got === 3,
+    JSON.stringify(home));
+  await context.close();
+}
+
+// --- pausing offers to leave, and leaving lands in the glade -------------
+{
+  const { context, page } = await fresh();
+  const quit = await page.evaluate(() => {
+    const d = __dreybird;
+    d.active().story.glade = { got: [true, true, true], talked: 1, opened: true };
+    d.resetWorld(); d.enterLand('glade');
+    d.enterStage(d.STAGES.reeds);
+    d.pauseRun();
+    const label = document.getElementById('paused-quit').textContent;
+    d.endRun();
+    return { label, mode: d.G.mode, opened: d.land() ? d.land().opened : null };
+  });
+  check('pause offers to leave the level, not to end a run',
+    /glade/i.test(quit.label), quit.label);
+  check('and leaving lands in the glade rather than the endless title',
+    quit.mode === 'explore' && quit.opened === true, JSON.stringify(quit));
+  await context.close();
+}
+
+// --- a level announces itself -------------------------------------------
+{
+  const { context, page } = await fresh();
+  const titled = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game');
+    const g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+    const row = () => {
+      d.frame(performance.now() + 1);
+      return Array.from(g.getImageData(0, Math.round(150 * scale), cv.width, 1).data).join(',');
+    };
+    d.resetWorld(); d.enterStage(d.STAGES.reeds);
+    const announced = row();
+    // Long enough for the card to have gone.
+    for (let i = 0; i < 200; i++) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+    const after = row();
+    return { differs: announced !== after };
+  });
+  check('the level names itself on arrival, on the canvas', titled.differs);
   await context.close();
 }
 

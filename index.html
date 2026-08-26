@@ -1903,7 +1903,25 @@
     /* A stage is not a run to be scored: it is a level to be beaten. Dying in
        one costs the attempt and nothing else -- the glade behind it, the coins
        and the XP are all exactly as they were. */
-    if (G.mode === 'stage' && !G.stage.won) { retryStage(); return; }
+    if (G.mode === 'stage' && !G.stage.won) {
+      /* Restarting here silently, which is what this used to do, makes a
+         death and a retry indistinguishable from a stutter -- so the level
+         read as a loop with no way out rather than as something you were
+         losing. It waits now, says how far you got, and can be left. */
+      /* Once, and into a state the frozen arm above can hold. Without the
+         guard and the state change this ran every tick: the bird stayed in
+         DYING, kept meeting the ground, and kept re-registering the fall, so
+         failedAt tracked the clock and the panel's fade-in never began. The
+         world was not frozen at all, it just looked still. */
+      if (!G.stage.failed) {
+        G.stage.failed = true;
+        G.stage.failedAt = G.ticks;
+        G.stage.reached = G.score;
+        G.state = PLAYING;
+        syncStage();
+      }
+      return;
+    }
     G.state = OVER;
     G.overAt = G.ticks;
     // An assist run is played on gentler physics, so it is not the same
@@ -2174,7 +2192,8 @@
      suspend-rather-than-save shape the Roost uses. */
   function enterStage(st) {
     G.mode = 'stage';
-    G.stage = { id: st.id, target: st.pipes, won: false, wonAt: 0, done: false };
+    G.stage = { id: st.id, target: st.pipes, won: false, wonAt: 0, done: false,
+                failed: false, failedAt: 0, reached: 0, cameAt: 0 };
     bird.x = BIRD_X; bird.px = BIRD_X;
     bird.vx = 0;
     bird.y = 240; bird.py = 240; bird.vy = 0;
@@ -2197,6 +2216,7 @@
     // startPlay fixes the run's physics from the bird's traits; the stage's
     // own gap is applied after, so a level is as wide as it was designed.
     G.gap = st.gap;
+    G.stage.cameAt = G.ticks;
     G.flash = reduceMotion ? 0 : 0.5;
   }
 
@@ -2293,6 +2313,8 @@
       bird.rot = Math.sin(G.ticks / 15) * 0.07;
       G.scroll += G.speed;
       G.cycle += G.speed;
+    } else if (G.state === PLAYING && G.mode === 'stage' && G.stage.failed) {
+      // Fallen: the level waits. Nothing moves until he decides.
     } else if (G.state === PLAYING && G.mode === 'explore') {
       tickExplore();
     } else if (G.state === PLAYING && G.roost) {
@@ -2345,7 +2367,7 @@
       }
       while (powers.length && powers[0].x + PU_R < -10) powers.shift();
       const last = pipes[pipes.length - 1];
-      const arrived = G.mode === 'stage' && G.stage.won;
+      const arrived = G.mode === 'stage' && (G.stage.won || G.stage.failed);
       if (!arrived && (!last || last.x < W + 40 + SPACING)) {
         spawnPipe((last ? last.x : W) + SPACING);
       }
@@ -2925,9 +2947,56 @@
     } else {
       textOut(ctx, 'THE REEDS ARE BEHIND YOU', W / 2, 210, 7, '#cdefff', '#20160a');
     }
-    if (Math.floor(G.ticks / 26) % 2 === 0) {
-      textOut(ctx, 'TAP TO GO ON', W / 2, 292, 7, '#ffffff', '#20160a');
+    const on = Math.floor(G.ticks / 20) % 2 === 0;
+    textOut(ctx, 'TAP TO GO ON', W / 2, 292, on ? 8 : 7, '#ffffff', '#20160a');
+  }
+
+  /* Fallen. The opposite of arriving, and it needs saying out loud: a level
+     that restarts in silence is indistinguishable from a stutter. How far he
+     got against how far there is turns a retry into progress rather than
+     repetition. */
+  function drawFallen() {
+    const S = G.stage;
+    if (!S || !S.failed) return;
+    const fade = clamp((G.ticks - S.failedAt) / 20, 0, 1);
+    ctx.save();
+    ctx.globalAlpha = fade * 0.84;
+    ctx.fillStyle = '#120e0a';
+    ctx.fillRect(0, 128, W, 150);
+    ctx.restore();
+
+    textOut(ctx, 'YOU FELL', W / 2, 158, 12, '#ffb4a2', '#20160a');
+    textOut(ctx, S.reached + ' OF ' + S.target + ' PIPES', W / 2, 186, 8,
+      '#ffe07a', '#20160a');
+    for (const [k, ln] of wrapLines(ctx,
+      'Nothing is lost. The glade is still open behind you.',
+      W - 60, 6).entries()) {
+      textOut(ctx, ln, W / 2, 210 + k * 13, 6, 'rgba(255,255,255,.75)', '#20160a');
     }
+    // Pulsed in size, never absent. This game already learned that lesson on
+    // the gust telegraph: a label that vanishes half the time is a poor label,
+    // and this one is the way out.
+    const beat = Math.floor(G.ticks / 20) % 2 === 0;
+    textOut(ctx, 'TAP TO TRY AGAIN', W / 2, 250, beat ? 9 : 8, '#ffffff', '#20160a');
+    textOut(ctx, 'OR THE MAP BUTTON TO GO BACK', W / 2, 268, 5,
+      'rgba(255,255,255,.55)', '#20160a');
+  }
+
+  /* Arriving somewhere should be announced. Crossing the brambles used to
+     change the game underneath you with no title and no beat: the only signal
+     that anything had happened was that the controls behaved differently. */
+  function drawStageTitle() {
+    const S = G.stage, st = stageNow();
+    if (!S || !st || S.won || S.failed) return;
+    const age = G.ticks - S.cameAt;
+    if (age > 110) return;
+    const fade = age < 80 ? 1 : 1 - (age - 80) / 30;
+    ctx.save();
+    ctx.globalAlpha = clamp(fade, 0, 1);
+    textOut(ctx, st.name, W / 2, 150, 14, '#ffe07a', '#20160a');
+    textOut(ctx, st.pipes + ' PIPES TO THE FAR SIDE', W / 2, 176, 6,
+      'rgba(255,255,255,.8)', '#20160a');
+    ctx.restore();
   }
 
   function drawWeather() {
@@ -3196,7 +3265,11 @@
 
     drawWeather();
     drawHud();
-    if (G.mode === 'stage' && G.stage.won) drawArrived();
+    if (G.mode === 'stage') {
+      if (G.stage.won) drawArrived();
+      else if (G.stage.failed) drawFallen();
+      else drawStageTitle();
+    }
     if (G.state === READY) drawReady();
     if (G.state === OVER) drawOver();
 
@@ -3327,7 +3400,11 @@
   const btnSound = document.getElementById('btn-sound');
 
   function syncStage() {
-    stage.dataset.land = G.mode === 'explore' ? '1' : '0';
+    /* A land, and a level you have fallen in, are both places you are meant
+       to be able to leave -- so the controls stay live rather than fading out
+       the way they do mid-flight. */
+    stage.dataset.land = (G.mode === 'explore' ||
+      (G.mode === 'stage' && (G.stage.failed || G.stage.done))) ? '1' : '0';
     stage.dataset.playing = (G.state === PLAYING || G.state === DYING) ? '1' : '0';
   }
 
@@ -3342,6 +3419,7 @@
     if (crashed) { setTimeout(() => location.reload(), 0); return; }
     // The way home from a level he has finished.
     if (G.mode === 'stage' && G.stage.won && G.stage.done) { leaveStage(); return; }
+    if (G.mode === 'stage' && G.stage.failed) { retryStage(); return; }
     if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden ||
         !statsSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
@@ -3810,6 +3888,11 @@
   const btnPause = document.getElementById('btn-pause');
 
   function pauseRun() {
+    if (G.mode === 'stage') {
+      document.getElementById('paused-quit').textContent = 'Back to the glade';
+      document.getElementById('paused-note').textContent =
+        'The level is waiting where you left it. The glade is still open behind you.';
+    }
     if (G.state !== PLAYING || G.paused) return;
     G.paused = true;
     pausedSheet.hidden = false;
@@ -3824,6 +3907,9 @@
   function endRun() {
     G.paused = false;
     pausedSheet.hidden = true;
+    // Leaving a level goes back to the land it was reached from, not to the
+    // endless game's title -- otherwise the only way out threw away the glade.
+    if (G.mode === 'stage' && G.explore) { leaveStage(); return; }
     resetWorld();
   }
 
