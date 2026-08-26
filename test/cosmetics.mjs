@@ -9,6 +9,15 @@ import { mkdirSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 
 const HERE = new URL('.', import.meta.url).pathname;
+
+/* Read the vault's localStorage key straight out of the game rather than
+   writing it here. Seeding a legacy save under a hard-coded name is how this
+   check quietly stopped testing anything when the storage was renamed apart
+   from the classic game: it wrote to a cupboard the game no longer opens,
+   found no old profile, and reported that nothing was back-paid. */
+const SRC = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+const VAULT_KEY = (SRC.match(/LS_VAULT\s*=\s*'([^']+)'/) || [])[1];
+if (!VAULT_KEY) throw new Error('could not find LS_VAULT in index.html');
 const ROOT = normalize(HERE + '..');
 const results = [];
 const check = (name, ok, info = '') => {
@@ -35,11 +44,11 @@ const ORIGIN = 'http://127.0.0.1:' + server.address().port + '/';
 
 const browser = await chromium.launch();
 const errors = [];
-async function fresh(init) {
+async function fresh(init, arg) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await context.newPage();
   page.on('pageerror', e => errors.push(String(e)));
-  if (init) await page.addInitScript(init);
+  if (init) await page.addInitScript(init, arg);
   await page.goto(ORIGIN);
   await page.waitForFunction(() => !!window.__dreybird, null, { timeout: 8000 });
   return { context, page };
@@ -203,9 +212,9 @@ const RUN = `(score) => {
 
 // --- back-pay for play from before the shop existed --------------------
 {
-  const { context, page } = await fresh(() => {
+  const { context, page } = await fresh(key => {
     // A profile in exactly the shape the previous release wrote.
-    localStorage.setItem('dreybird.vault', JSON.stringify({
+    localStorage.setItem(key, JSON.stringify({
       activeId: 'old1',
       profiles: [{
         id: 'old1', name: 'Veteran', skin: 'ember', best: 31, created: 1,
@@ -213,7 +222,7 @@ const RUN = `(score) => {
       }]
     }));
     Object.defineProperty(window, 'indexedDB', { get() { return undefined; } });
-  });
+  }, VAULT_KEY);
   const granted = await page.evaluate(() => {
     const p = __dreybird.active();
     return { name: p.name, coins: p.coins, granted: p.granted, best: p.best };
