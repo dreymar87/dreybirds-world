@@ -55,7 +55,7 @@ for (const blockFont of [false, true]) {
 
     const over = [];
     let longest = 0, count = 0;
-    for (const speech of Object.values(d.THISTLE)) {
+    for (const speech of Object.values(d.NPCS.thistle).filter(Array.isArray)) {
       for (const line of speech) {
         for (const w of d.wrapLines(g, line, asPixelFont, 6)) {
           // Press Start 2P advances one em a glyph, so this is the width the
@@ -216,21 +216,21 @@ for (const blockFont of [false, true]) {
     const farAway = !!L().saying;
 
     // Beside him, a tap starts him talking.
-    d.bird.x = d.GLADE.thistle.x; d.bird.y = d.GLADE.thistle.y - 20;
+    d.bird.x = d.LANDS.glade.npc.x; d.bird.y = d.LANDS.glade.npc.y - 20;
     d.tapLand(0, 0);
     const opened = !!L().saying;
     while (L().saying) d.tapLand(0, 0);
     const beforeSeeds = L().opened;
 
     // Fetch the three seeds by flying into them.
-    for (const sd of d.GLADE.seeds) {
+    for (const sd of d.LANDS.glade.pickups.at) {
       d.bird.x = sd.x; d.bird.y = sd.y; d.bird.vx = 0; d.bird.vy = 0;
       d.tick();
     }
     const got = L().got.filter(Boolean).length;
 
     // And tell him.
-    d.bird.x = d.GLADE.thistle.x; d.bird.y = d.GLADE.thistle.y - 20;
+    d.bird.x = d.LANDS.glade.npc.x; d.bird.y = d.LANDS.glade.npc.y - 20;
     talk();
     return { farAway, opened, beforeSeeds, got, afterSeeds: L().opened };
   });
@@ -249,7 +249,7 @@ for (const blockFont of [false, true]) {
   const loop = await page.evaluate(() => {
     const d = __dreybird;
     const pr = d.active();
-    pr.owned = []; pr.story.glade = null; pr.story.flock = []; pr.story.flags = [];
+    pr.owned = []; pr.story.lands = {}; pr.story.flock = []; pr.story.flags = [];
     d.resetWorld(); d.enterLand('glade');
 
     // Shut, the east edge is a wall.
@@ -310,7 +310,7 @@ for (const blockFont of [false, true]) {
   const both = await page.evaluate(() => {
     const d = __dreybird;
     const pr = d.active();
-    pr.story.glade = { got: [true, true, true], talked: 1, opened: true };
+    pr.story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
 
     // Cleared: onward to the far side.
     d.resetWorld(); d.enterLand('glade');
@@ -350,7 +350,7 @@ for (const blockFont of [false, true]) {
   const retry = await page.evaluate(() => {
     const d = __dreybird;
     const pr = d.active();
-    pr.coins = 500; pr.xp = 1234; pr.story.glade = { got: [true, true, true], talked: 1, opened: true };
+    pr.coins = 500; pr.xp = 1234; pr.story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
     d.resetWorld(); d.enterLand('glade');
     const gladeBefore = JSON.stringify(d.land().got) + d.land().opened;
     d.enterStage(d.STAGES.reeds);
@@ -405,7 +405,7 @@ for (const blockFont of [false, true]) {
   const { context, page } = await fresh();
   await page.evaluate(() => {
     const d = __dreybird;
-    d.active().story.glade = { got: [true, true, true], talked: 1, opened: true };
+    d.active().story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
     d.resetWorld(); d.enterLand('glade');
     d.enterStage(d.STAGES.reeds);
     // Fall.
@@ -450,7 +450,7 @@ for (const blockFont of [false, true]) {
   const { context, page } = await fresh();
   const quit = await page.evaluate(() => {
     const d = __dreybird;
-    d.active().story.glade = { got: [true, true, true], talked: 1, opened: true };
+    d.active().story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
     d.resetWorld(); d.enterLand('glade');
     d.enterStage(d.STAGES.reeds);
     d.pauseRun();
@@ -549,6 +549,152 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- every land actually draws ------------------------------------------
+/* The suite drives the simulation and almost never renders, so a land whose
+   DRAWING referenced a constant that no longer existed passed 47 checks and
+   then threw the moment a human looked at it. Ticking is not seeing. */
+{
+  const { context, page } = await fresh();
+  const drew = await page.evaluate(() => {
+    const d = __dreybird;
+    const out = [];
+    for (const id of Object.keys(d.LANDS)) {
+      d.active().story.flock = ['sky', 'ember'];      // so perched birds draw too
+      d.resetWorld(); d.enterLand(id);
+      try {
+        for (let i = 0; i < 4; i++) { d.tick(); d.frame(performance.now() + i + 1); }
+        // And again past the name card, and again mid-conversation.
+        for (let i = 0; i < 130; i++) d.tick();
+        d.frame(performance.now() + 200);
+        if (d.LANDS[id].npc) {
+          const n = d.LANDS[id].npc;
+          d.bird.x = n.x; d.bird.y = n.y - 20;
+          d.tapLand(0, 0);
+          d.frame(performance.now() + 300);
+        }
+        out.push([id, 'ok']);
+      } catch (e) { out.push([id, String(e)]); }
+    }
+    return out;
+  });
+  check('every land draws without throwing, conversation and all',
+    drew.every(r => r[1] === 'ok'), JSON.stringify(drew));
+  await context.close();
+}
+
+// --- the chain runs end to end, and the second link is not a copy --------
+{
+  const { context, page } = await fresh();
+  const chain = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.owned = []; pr.story.lands = {}; pr.story.flock = []; pr.story.flags = [];
+
+    const errand = () => {
+      const L = d.land(), pk = d.LANDS[L.id].pickups;
+      // In order for an ordered errand; the check below proves order matters.
+      pk.at.forEach(sd => { d.bird.x = sd.x; d.bird.y = sd.y; d.bird.vx = 0; d.bird.vy = 0; d.tick(); });
+      const n = d.LANDS[L.id].npc;
+      d.bird.x = n.x; d.bird.y = n.y - 20;
+      d.tapLand(0, 0);
+      while (d.land().saying) d.tapLand(0, 0);
+      return d.land().opened;
+    };
+    const fly = () => {
+      let g = 0;
+      while (!d.stage().won && g++ < 30000) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+      for (let i = 0; i < 200; i++) d.tick();
+      d.press();
+      return d.land().id;
+    };
+
+    d.resetWorld(); d.enterLand('glade');
+    const gladeOpen = errand();
+    d.enterStage(d.STAGES.reeds);
+    const afterReeds = fly();
+    const bankOpenBefore = d.land().opened;
+    const bankOpen = errand();
+    d.enterStage(d.STAGES.narrows);
+    const afterNarrows = fly();
+
+    return { gladeOpen, afterReeds, bankOpenBefore, bankOpen, afterNarrows,
+             owned: pr.owned.slice(), flock: pr.story.flock.slice(),
+             at: pr.story.at, lands: Object.keys(pr.story.lands).sort() };
+  });
+  check('the glade opens, and the Reeds land him on the bank',
+    chain.gladeOpen === true && chain.afterReeds === 'bank', JSON.stringify(chain.afterReeds));
+  check('the bank starts shut even though the glade is done',
+    chain.bankOpenBefore === false, String(chain.bankOpenBefore));
+  check('its own errand opens it, and the Narrows land him at the Kiln',
+    chain.bankOpen === true && chain.afterNarrows === 'kiln', chain.afterNarrows);
+  check('both birds are with him, and neither displaced the other',
+    chain.flock.join() === 'sky,ember' && chain.owned.length === 2,
+    JSON.stringify({ owned: chain.owned, flock: chain.flock }));
+  check('each land remembers its own errand separately',
+    chain.lands.join() === 'bank,glade' && chain.at === 'kiln', JSON.stringify(chain.lands));
+  await context.close();
+}
+
+// --- an ordered errand really is ordered ---------------------------------
+{
+  const { context, page } = await fresh();
+  const order = await page.evaluate(() => {
+    const d = __dreybird;
+    d.active().story.lands = {};
+    d.resetWorld(); d.enterLand('bank');
+    const at = d.LANDS.bank.pickups.at;
+    const touch = i => { d.bird.x = at[i].x; d.bird.y = at[i].y; d.bird.vx = 0; d.bird.vy = 0; d.tick(); };
+
+    touch(2);                       // last one first
+    const wrong = d.land().got.filter(Boolean).length;
+    touch(0); touch(1);
+    const partway = d.land().got.filter(Boolean).length;
+    touch(2);                       // and now, in turn
+    const done = d.land().got.filter(Boolean).length;
+    return { wrong, partway, done, ordered: d.LANDS.bank.pickups.ordered };
+  });
+  check('the rings are ordered, and taking one out of turn earns nothing',
+    order.ordered === true && order.wrong === 0, JSON.stringify(order));
+  check('and flying them in order completes the errand',
+    order.partway === 2 && order.done === 3, JSON.stringify(order));
+  await context.close();
+}
+
+// --- the Narrows is genuinely the harder passage -------------------------
+{
+  const { context, page } = await fresh();
+  const hard = await page.evaluate(() => {
+    const d = __dreybird;
+    const measure = st => {
+      d.resetWorld(); d.enterStage(st);
+      /* Any hazard, not just movers. Counting movers alone called a level
+         hazard-free when its seed happened to produce a gust instead --
+         which is the same "nominally on" mistake this check exists to catch,
+         made by the check itself. */
+      let haz = 0, guard = 0;
+      const seen = new Set();
+      while (!d.stage().won && guard++ < 30000) {
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+        d.bird.vy = 0;
+        for (const q of d.pipes) if (!seen.has(q)) { seen.add(q); if (q.amp) haz++; }
+        // Once per hazard, not once per tick it is blowing.
+        if (d.G.gust && !seen.has(d.G.gust)) { seen.add(d.G.gust); haz++; }
+        if (d.G.fog && !seen.has(d.G.fog)) { seen.add(d.G.fog); haz++; }
+        d.tick();
+      }
+      return { pipes: st.pipes, gap: st.gap, hazards: haz };
+    };
+    return { reeds: measure(d.STAGES.reeds), narrows: measure(d.STAGES.narrows) };
+  });
+  check('the Narrows is longer and tighter than the Reeds',
+    hard.narrows.pipes > hard.reeds.pipes && hard.narrows.gap < hard.reeds.gap,
+    JSON.stringify(hard));
+  // Hazards nominally on is not the same as hazards actually reaching the pipes.
+  check('and its hazards actually reach the pipes',
+    hard.reeds.hazards === 0 && hard.narrows.hazards > 0, JSON.stringify(hard));
+  await context.close();
+}
+
 // --- screenshot: the longest line he has ----------------------------------
 {
   mkdirSync(HERE + 'shots', { recursive: true });
@@ -558,7 +704,7 @@ for (const blockFont of [false, true]) {
     d.active().taught = true;
     d.resetWorld(); d.enterLand('glade');
     // Inside the talk radius, or the taps below do nothing at all.
-    d.bird.x = d.GLADE.thistle.x + 10; d.bird.y = d.GLADE.thistle.y - 20;
+    d.bird.x = d.LANDS.glade.npc.x + 10; d.bird.y = d.LANDS.glade.npc.y - 20;
     // Straight to the longest thing he says.
     d.land().got = [true, true, true];
     d.tapLand(0, 0);
