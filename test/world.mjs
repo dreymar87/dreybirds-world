@@ -659,7 +659,7 @@ for (const blockFont of [false, true]) {
   check('a cleared passage says so, and an uncleared one does not',
     /Reeds.*cleared/i.test(truth.passages[0]) && /Narrows.*not yet/i.test(truth.passages[1]),
     JSON.stringify(truth.passages));
-  check('the flock count is the flock', /1 OF 12/.test(truth.flock), truth.flock);
+  check('the flock count is the flock, Classic included', /2 OF 12/.test(truth.flock), truth.flock);
   check('and the found birds are real pixels, not empty canvases',
     truth.previews.length === 2 && truth.previews.every(n => n > 50),
     JSON.stringify(truth.previews));
@@ -782,6 +782,88 @@ for (const blockFont of [false, true]) {
     Object.keys(gaps).filter(k => k !== 'assist').every(exact), JSON.stringify(gaps));
   check('and assist does not widen a level: it is as wide as it was designed',
     exact('assist'), JSON.stringify(gaps.assist));
+  await context.close();
+}
+
+// --- the rescue is real: a found bird can be flown ------------------------
+// The arrival card said "you can fly as Bluebird from now on" while the shop
+// kept him behind "Reach a best of 5". A story-only player has a best of 0
+// forever, so the campaign's one reward was inert.
+{
+  const { context, page } = await fresh();
+  const r = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    pr.best = 0; d.G.best = 0;
+    const sky = d.SKINS.find(b => b.id === 'sky');
+    const before = d.available(sky);
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds); d.press();
+    let g = 0;
+    while (!d.stage().won && g++ < 20000) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+    for (let i = 0; i < 200; i++) d.tick();
+    d.press();                                   // onward, to the bank
+    const after = d.available(sky);
+    d.setTab('bird');
+    const card = document.querySelector('.card[data-item="sky"]');
+    const shop = { disabled: card ? card.disabled : null, text: card ? card.textContent : null };
+    if (card) card.click();
+    return { best: pr.best, before, after, shop, skin: pr.skin };
+  });
+  check('a rescued bird can be flown at a best of 0',
+    r.best === 0 && r.before === false && r.after === true, JSON.stringify({ best: r.best, before: r.before, after: r.after }));
+  check('and the shop says so: the card is live and reads Tap to equip',
+    r.shop.disabled === false && /Tap to equip/.test(r.shop.text || ''), JSON.stringify(r.shop));
+  check('and tapping it equips him', r.skin === 'sky', String(r.skin));
+  await context.close();
+}
+
+// --- the map counts what the shop lets you fly ----------------------------
+// It counted story.flock.length over a row that also lit Classic, so a new
+// player read "0 OF 12" above one lit bird, a bought bird never counted, and
+// a full flock would have read "11 OF 12".
+{
+  const { context, page } = await fresh();
+  const m = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    const count = () => {
+      d.openMap();
+      const t = document.querySelector('#map-body .sheet-section').textContent;
+      const lit = document.querySelectorAll('#map-body .flock canvas').length;
+      d.closeMap(false);
+      return { t, lit };
+    };
+    const start = count();
+    pr.owned.push('bird:mint');                  // bought in the shop
+    const bought = count();
+    pr.best = 5; d.G.best = 5;                   // Bluebird by score, in free flight
+    const scored = count();
+    return { start, bought, scored };
+  });
+  check('a new map counts the one bird it lights', /1 OF 12/.test(m.start.t) && m.start.lit === 1, JSON.stringify(m.start));
+  check('a bought bird counts, and lights', /2 OF 12/.test(m.bought.t) && m.bought.lit === 2, JSON.stringify(m.bought));
+  check('a score-unlocked bird counts, and lights', /3 OF 12/.test(m.scored.t) && m.scored.lit === 3, JSON.stringify(m.scored));
+  await context.close();
+}
+
+// --- a flock of strangers reveals nothing ---------------------------------
+// A hand-edited save could put any string in the flock: it padded the count,
+// and a bird that named a land's roost revealed that land on the map with
+// the passage to it never flown.
+{
+  const { context, page } = await fresh();
+  const s = await page.evaluate(() => {
+    const d = __dreybird;
+    const payload = JSON.parse(JSON.stringify(d.exportSave()));
+    payload.profiles[0].story.flock = ['ember', 'nonsense'];
+    const res = d.importSave(payload);
+    const flock = d.active().story.flock.slice();
+    d.openMap();
+    const rows = [...document.querySelectorAll('#map-body .land-row')].map(r => r.querySelector('.name').textContent);
+    const count = document.querySelector('#map-body .sheet-section').textContent;
+    d.closeMap(false);
+    return { ok: !!(res && res.ok), flock, rows, count };
+  });
+  check('an imported flock keeps only birds the game has', s.ok && s.flock.indexOf('nonsense') < 0 && s.flock.indexOf('ember') >= 0, JSON.stringify(s.flock));
+  check('and a bird in the flock does not open the map to its land', s.rows.indexOf('THE KILN') < 0 && s.rows.some(n => n === '?????'), JSON.stringify(s.rows));
   await context.close();
 }
 

@@ -959,8 +959,9 @@
         at: typeof (p.story || {}).at === 'string' ? p.story.at : 'glade',
         flags: Array.isArray((p.story || {}).flags)
           ? p.story.flags.filter(x => typeof x === 'string') : [],
+        // Only birds the game has: a stranger in the flock would pad the count.
         flock: Array.isArray((p.story || {}).flock)
-          ? p.story.flock.filter(x => typeof x === 'string') : [],
+          ? p.story.flock.filter(x => typeof x === 'string' && SKINS.some(b => b.id === x)) : [],
         // One slot per land: a shared one meant finishing the glade's errand
         // counted as finishing every other land's too.
         lands: (() => {
@@ -1077,10 +1078,22 @@
   }
 
   // Score-gated birds stay on their thresholds, perks on theirs; the rest is bought.
+  /* A score-gated bird is also available once it is OWNED. winStage puts a
+     rescued flockmate into profile.owned, and a story-only player has a best
+     of 0 forever -- so the arrival card promised "you can fly as Bluebird
+     from now on" while the shop kept him behind "Reach a best of 5". */
   const available = item =>
     item.lvl != null ? levelFor(profile ? profile.xp || 0 : 0) >= item.lvl
-      : item.need != null ? G.best >= item.need
+      : item.need != null ? (G.best >= item.need ||
+                             (!!profile && profile.owned.indexOf(keyOf(item)) >= 0))
         : owns(item);
+
+  /* One answer to "is this bird home?" -- for the map's count, the map's row
+     and the perches -- and it is the shop's own answer to "can you fly it",
+     so the two cannot disagree. Never owns(): that is true of every
+     score-gated bird whether or not it has been reached. */
+  const home = b => !!b && (b.id === 'classic' ||
+    (!!profile && (profile.story.flock.indexOf(b.id) >= 0 || available(b))));
 
   function buy(item) {
     if (!profile || !item || owns(item) || earned(item)) return false;
@@ -3059,7 +3072,7 @@
   // A perched flockmate, wherever a land keeps one.
   function drawRoosting(id) {
     const who = SKINS.find(b => b.id === id);
-    if (!who || !profile || profile.story.flock.indexOf(id) < 0) return;
+    if (!who || !home(who)) return;
     const bob = reduceMotion ? 0 : Math.sin(G.ticks / 40) * 2;
     drawBird(ctx, 214, 356 + bob, 0, who, 0, 1);
     textOut(ctx, who.name.toUpperCase(), 214, 330, 6, '#cdefff', '#20160a');
@@ -4179,8 +4192,11 @@
 
   function visited(id) {
     if (!profile) return id === 'glade';
+    // Reached is reached: been there, be there, or be past it. A bird in the
+    // flock is not evidence -- a hand-edited save could name a land's roost
+    // and open the map's door to a place never flown to.
     return id === 'glade' || id === profile.story.at ||
-           !!profile.story.lands[id] || profile.story.flock.indexOf(LANDS[id].roost) >= 0 ||
+           !!profile.story.lands[id] ||
            CHAIN.indexOf(id) < CHAIN.indexOf(profile.story.at);
   }
 
@@ -4224,12 +4240,12 @@
 
     const h = document.createElement('p');
     h.className = 'sheet-section';
-    h.textContent = 'THE FLOCK  ·  ' + profile.story.flock.length + ' OF ' + SKINS.length;
+    h.textContent = 'THE FLOCK  ·  ' + SKINS.filter(home).length + ' OF ' + SKINS.length;
     mapBody.appendChild(h);
     const row = document.createElement('div');
     row.className = 'flock';
     for (const bird_ of SKINS) {
-      if (profile.story.flock.indexOf(bird_.id) >= 0 || bird_.id === 'classic') {
+      if (home(bird_)) {
         // The shop's own preview, so the map cannot drift from what it shows.
         row.appendChild(skinPreview(bird_, false));
       } else {
