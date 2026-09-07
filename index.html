@@ -426,6 +426,26 @@
     position: absolute; width: 1px; height: 1px; overflow: hidden;
     clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
   }
+  /* The map. The world is a chain, so it is drawn as one: land, passage,
+     land. A row you can go to is a button; one you have not reached is not. */
+  #map-body { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .land-row { display: flex; align-items: center; gap: 10px; }
+  .land-row .name { flex: 1; }
+  .land-row .here { color: #ffe07a; }
+  .land-row .req { font-size: 7px; color: rgba(255, 255, 255, .62); }
+  .land-row.unknown { opacity: .45; cursor: default; }
+  .passage {
+    margin: 0 0 0 22px; padding: 2px 0 2px 12px;
+    border-left: 2px dashed rgba(255, 255, 255, .3);
+    font-size: 7px; color: rgba(255, 255, 255, .62);
+  }
+  .passage.done { border-left-style: solid; border-left-color: #ffe07a; }
+  .flock { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .flock canvas { image-rendering: pixelated; }
+  .flock .missing {
+    width: 34px; height: 24px; border: 1px dashed rgba(255, 255, 255, .25);
+    border-radius: 3px;
+  }
   .sheet-actions { display: flex; gap: 6px; }
   .sheet-btn {
     font-family: "Press Start 2P", ui-monospace, monospace;
@@ -578,6 +598,15 @@
     <div class="sheet-actions" style="margin-top:auto">
       <button id="paused-resume" class="sheet-btn" type="button">Resume</button>
       <button id="paused-quit" class="sheet-btn" type="button">End run</button>
+    </div>
+  </div>
+
+  <div id="map" class="sheet" hidden role="dialog" aria-modal="true" aria-label="The lands">
+    <h2>The Lands</h2>
+    <div id="map-body"></div>
+    <div class="sheet-actions">
+      <button id="map-free" class="sheet-btn" type="button">Free flight</button>
+      <button id="map-close" class="sheet-btn" type="button">Back</button>
     </div>
   </div>
 
@@ -1347,7 +1376,7 @@
                       city: '#7fae7a', dirt: '#8a6a3f', grass: '#5fa855',
                       sun: '#fff3c8', star: 0 } },
 
-    bank:  { id: 'bank', name: 'THE FAR BANK', east: 'narrows',
+    bank:  { id: 'bank', name: 'THE FAR BANK', east: 'narrows', west: 'glade',
              npc: { who: 'stilt', x: 66, y: 356, r: 42 },
              // Flown in order, not merely collected: a different errand, and
              // one that teaches the steering the player has just been given.
@@ -1358,7 +1387,7 @@
                       city: '#b08a63', dirt: '#7b5c3a', grass: '#8fa457',
                       sun: '#fff0bd', star: 0 } },
 
-    kiln:  { id: 'kiln', name: 'THE KILN', ends: true, roost: 'ember',
+    kiln:  { id: 'kiln', name: 'THE KILN', ends: true, roost: 'ember', west: 'bank',
              phase: { sky0: '#d9704a', sky1: '#ffc98a', cloud: '#f6b48c',
                       city: '#7a3f34', dirt: '#4e2c22', grass: '#a35a36',
                       sun: '#ffe3a8', star: 0.2 } }
@@ -1761,6 +1790,12 @@
     G.roost = null;
     roostCoins.length = 0;
     G.state = READY;
+    /* A reset world is never paused. The map holds a level paused behind
+       it, and travelling away from that level comes through here -- so
+       without this the next land arrived frozen, and Pause, seeing it was
+       already paused, refused to open. The fallen panel's own advertised
+       way out. */
+    G.paused = false;
     syncStage();
   }
 
@@ -2166,7 +2201,15 @@
     // The edges hold him rather than end him. Nothing in a land is fatal,
     // which is the whole difference between here and a pipe-land.
     const hw = G.hitW / 2, hh = G.hitH / 2;
-    if (bird.x < hw + 2) { bird.x = hw + 2; bird.vx = Math.max(bird.vx, 0); }
+    if (bird.x < hw + 2) {
+      /* Back the way he came, and no level to re-fly: the passage was earned
+         the first time. Until this, every land's west edge was a wall while
+         the Kiln told the player "West is the way back" -- a corridor whose
+         signs lied. */
+      const west = LANDS[E.id].west;
+      if (west) { enterLand(west); bird.x = W - 40; bird.px = W - 40; return; }
+      bird.x = hw + 2; bird.vx = Math.max(bird.vx, 0);
+    }
     if (bird.x > W - hw - 2) {
       // Open brambles make the east edge a door rather than a wall.
       // A door wherever the land declares a passage, once it is open.
@@ -3594,7 +3637,7 @@
     if (G.mode === 'stage' && G.stage.won && G.stage.done) { leaveStage(); return; }
     if (G.mode === 'stage' && G.stage.failed) { retryStage(); return; }
     if (!sheet.hidden || !playersSheet.hidden || !settingsSheet.hidden ||
-        !statsSheet.hidden || !pausedSheet.hidden) return;
+        !statsSheet.hidden || !mapSheet.hidden || !pausedSheet.hidden) return;
     audio.ensure();
     if (music.on && !audio.muted) music.start();
     askPersist();
@@ -3650,6 +3693,7 @@
       else if (!playersSheet.hidden) closePlayers();
       else if (!settingsSheet.hidden) closeSettings();
       else if (!statsSheet.hidden) closeStats();
+      else if (!mapSheet.hidden) closeMap(false);
       else if (!pausedSheet.hidden) resumeRun();
     }
   });
@@ -4101,6 +4145,109 @@
   btnGear.addEventListener('click', openSettings);
   document.getElementById('settings-close').addEventListener('click', closeSettings);
 
+  /* ══════════════════ the map ══════════════════
+
+     What the vision called a map system. It was a toggle while there was one
+     land; with three, and a west edge that now leads back, it is a place to
+     see where you have been and to go there without re-flying anything. */
+  const mapSheet = document.getElementById('map');
+  const mapBody = document.getElementById('map-body');
+  let mapHeldLevel = false;     // a level paused behind the map, to be resumed by Back
+
+  const CHAIN = ['glade', 'reeds', 'bank', 'narrows', 'kiln'];
+
+  function visited(id) {
+    if (!profile) return id === 'glade';
+    return id === 'glade' || id === profile.story.at ||
+           !!profile.story.lands[id] || profile.story.flock.indexOf(LANDS[id].roost) >= 0 ||
+           CHAIN.indexOf(id) < CHAIN.indexOf(profile.story.at);
+  }
+
+  function buildMap() {
+    mapBody.textContent = '';
+    if (!profile) return;
+    const here = G.mode === 'explore' ? G.explore.id
+               : G.mode === 'stage' ? stageNow().from : profile.story.at;
+
+    for (const id of CHAIN) {
+      if (STAGES[id]) {
+        const st = STAGES[id];
+        const done = profile.story.flags.indexOf('cleared:' + id) >= 0;
+        const p = document.createElement('div');
+        p.className = 'passage' + (done ? ' done' : '');
+        p.textContent = st.name + (done ? '  ·  cleared' : '  ·  not yet');
+        mapBody.appendChild(p);
+        continue;
+      }
+      const land = LANDS[id];
+      const known = visited(id);
+      const lk = profile.story.lands[id];
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'card land-row' + (known ? '' : ' unknown');
+      b.disabled = !known;
+      const name = document.createElement('span');
+      name.className = 'name' + (id === here ? ' here' : '');
+      name.textContent = known ? land.name : '?????';
+      const note = document.createElement('span');
+      note.className = 'req';
+      note.textContent = !known ? 'not yet'
+        : id === here ? 'here'
+        : land.ends ? 'the edge, for now'
+        : lk && lk.opened ? 'way east open'
+        : land.npc ? 'errand waiting' : 'visited';
+      b.append(name, note);
+      if (known) b.addEventListener('click', () => travel(id));
+      mapBody.appendChild(b);
+    }
+
+    const h = document.createElement('p');
+    h.className = 'sheet-section';
+    h.textContent = 'THE FLOCK  ·  ' + profile.story.flock.length + ' OF ' + SKINS.length;
+    mapBody.appendChild(h);
+    const row = document.createElement('div');
+    row.className = 'flock';
+    for (const bird_ of SKINS) {
+      if (profile.story.flock.indexOf(bird_.id) >= 0 || bird_.id === 'classic') {
+        // The shop's own preview, so the map cannot drift from what it shows.
+        row.appendChild(skinPreview(bird_, false));
+      } else {
+        const m = document.createElement('span');
+        m.className = 'missing';
+        m.title = 'still scattered';
+        row.appendChild(m);
+      }
+    }
+    mapBody.appendChild(row);
+  }
+
+  function travel(id) {
+    closeMap(true);
+    resetWorld();
+    enterLand(id);
+  }
+
+  function openMap() {
+    // A level behind the map holds still until Back, or is left by travelling.
+    mapHeldLevel = G.mode === 'stage' && !G.paused;
+    if (mapHeldLevel) G.paused = true;
+    buildMap();
+    mapSheet.hidden = false;
+    document.getElementById('map-close').focus();
+  }
+  function closeMap(leaving) {
+    mapSheet.hidden = true;
+    if (mapHeldLevel && !leaving) G.paused = false;
+    mapHeldLevel = false;
+    btnWorld.focus();
+  }
+
+  document.getElementById('map-close').addEventListener('click', () => closeMap(false));
+  document.getElementById('map-free').addEventListener('click', () => {
+    closeMap(true);
+    resetWorld();
+  });
+
   /* ══════════════════ stats ══════════════════
 
      Four of these numbers have been recorded since the shop was built and
@@ -4257,11 +4404,7 @@
      the campaign has exactly one land in it, so a map screen would be a
      screen with one thing on it. */
   const btnWorld = document.getElementById('btn-world');
-  btnWorld.addEventListener('click', () => {
-    audio.ensure();
-    if (G.mode === 'explore') { resetWorld(); }
-    else { resetWorld(); enterLand((profile && profile.story.at) || 'glade'); }
-  });
+  btnWorld.addEventListener('click', () => { audio.ensure(); openMap(); });
 
   btnStats.addEventListener('click', openStats);
   document.getElementById('stats-close').addEventListener('click', closeStats);
@@ -4809,6 +4952,7 @@
                         assist: G.runAssist }),
       paused: () => G.paused,
       openSettings, closeSettings, openStats, closeStats, buildStats,
+      openMap, closeMap, buildMap, travel, CHAIN,
       seed: () => G.seed,
       trailParticles: () => trail,
       PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,

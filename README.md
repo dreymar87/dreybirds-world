@@ -3,24 +3,40 @@
 **You are DreyBird. Your flock was scattered across the pipe-lands, and you are
 bringing them home.**
 
-An adventure built on the bones of a Flappy Bird tribute. Between the pipe-lands
-there are quiet places where the world stops rushing at you — hold your thumb and
-DreyBird glides toward it, coasting when you let go. Land near a field mouse and
-he will tell you what the wind took. Help him and he will pull the brambles aside.
-Beyond them is a proper pipe-land, and at the far end of it, one of your flock.
+**Play it: https://dreymar87.github.io/dreybirds-world**
 
-The endless game this grew out of is still here as **free mode**, unchanged.
+An adventure built on the bones of a Flappy Bird tribute. Between the pipe-lands
+there are quiet places where the world stops rushing at you: hold your thumb and
+DreyBird glides toward it, coasting when you let go. Nothing in a land can hurt him.
+Tap the map button to see where you are and where you have been.
+
+## The world so far
+
+```
+THE GLADE  --(the Reeds)-->  THE FAR BANK  --(the Narrows)-->  THE KILN
+Thistle, a mouse             Stilt, a heron                     the world ends here, for now
+three seeds to fetch         three rings, in order              Ember is found
+                             Bluebird is found
+```
+
+Each land has someone in it with an errand. Finish it and they open the way east
+into a **pipe-land**, which is the classic game with a finish line: fly its length
+and you arrive. Dying in one costs the attempt and nothing else. At the far end of
+every passage is a place, and in it one of your flock. **Two of twelve are home.**
+
+A pipe-land is the same flight every attempt, because the pipes come from a seed,
+so a retry is learning a level rather than rerolling one. West takes you back
+through lands you have already earned, with nothing to re-fly.
+
+The endless game this grew out of is still here as **free flight**, unchanged.
 
 > Seeded from [DreyBird](https://github.com/dreymar87/DreyBird), which remains its
 > own game. Storage is deliberately named apart: both are served from
 > `dreymar87.github.io`, and browser storage is scoped per origin rather than per
-> path, so sharing a name would mean sharing — and overwriting — each other's saves.
+> path, so sharing a name would mean sharing, and overwriting, each other's saves.
 
-A one-file tribute to Flappy Bird. Tap to flap, thread the pipes, chase a medal.
 
-**Play it: https://dreymar87.github.io/DreyBird**
-
-No build step, no dependencies, no assets — the whole game is `index.html`.
+No build step, no dependencies, no assets beyond four generated icons and a manifest — the game itself is `index.html`.
 Open it in any browser (phone included) and play.
 
 ```
@@ -286,7 +302,7 @@ own save file. Editing it only cheats you.
 
 ## How it's built
 
-Plain JavaScript on a `<canvas>`, roughly 900 lines:
+Plain JavaScript on a `<canvas>`, about 5,000 lines:
 
 - **Fixed timestep.** The world advances in 60 Hz ticks with an accumulator,
   and rendering interpolates between them. A 120 Hz phone plays exactly like
@@ -314,7 +330,7 @@ Plain JavaScript on a `<canvas>`, roughly 900 lines:
   and asserts the game still boots and plays.
 - **Offline by default.** `sw.js` is a hand-written service worker — no
   Workbox — that precaches the app shell and keeps the pixel typeface in a
-  stale-while-revalidate cache. Bump `CACHE` in it to ship an update.
+  stale-while-revalidate cache. Navigations are network-first with a 2.5 s cache fallback, so a new `index.html` reaches the player on the next load; bump `CACHE` only when the icons or manifest change.
 - **Async storage, synchronous loop.** The vault is read once during boot
   into a plain object; the game loop never awaits anything. Writes go through
   an ordered queue so a reload can't catch the store half-updated, and they
@@ -343,10 +359,11 @@ npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run test:portal          # 19  portals, the pull, the Roost
 npm run test:stats           # 20  the stats screen and its chart
+npm run test:world           # 63  the lands, the flight, the passages
 npm run icons                #     regenerate the app icons
 ```
 
-222 checks in total.
+285 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take

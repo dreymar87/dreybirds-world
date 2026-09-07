@@ -327,10 +327,14 @@ for (const blockFont of [false, true]) {
     d.endRun();
     const quit = { at: d.land().id, saved: pr.story.at };
 
-    // And the map button returns him to wherever he actually is.
+    // And the map lists where he actually is.
     pr.story.at = 'bank';
     d.resetWorld(); d.enterLand(pr.story.at);
-    const resumed = d.land().id;
+    d.openMap();
+    const rows = [...document.querySelectorAll('#map-body .land-row')];
+    const hereRow = rows.find(r => r.querySelector('.here'));
+    const resumed = hereRow ? hereRow.querySelector('.name').textContent : null;
+    d.closeMap(false);
     return { won, quit, resumed };
   });
   check('clearing a passage puts him on the far side', both.won.at === 'bank',
@@ -339,8 +343,8 @@ for (const blockFont of [false, true]) {
     both.won.saved);
   check('giving up returns him to the side he came from', both.quit.at === 'glade',
     JSON.stringify(both.quit));
-  check('the map button goes to where he is, not always to the start',
-    both.resumed === 'bank', both.resumed);
+  check('the map marks where he is, not always the start',
+    both.resumed === 'THE FAR BANK', String(both.resumed));
   await context.close();
 }
 
@@ -432,16 +436,61 @@ for (const blockFont of [false, true]) {
     bar.blocked.length === 0 && bar.faded.length === 0 && bar.count >= 5,
     JSON.stringify(bar));
 
-  // The map button is the way home, clicked for real.
+  // The map button is the way home, clicked for real -- and it opens a map,
+  // so the way home is two taps: the button, then the land.
   await page.click('#btn-world', { timeout: 3000 });
+  const held = await page.evaluate(() => {
+    const d = __dreybird;
+    const t0 = d.G.ticks, f0 = d.stage().failedAt;
+    for (let i = 0; i < 30; i++) d.tick();
+    return { open: !document.getElementById('map').hidden, paused: d.G.paused,
+             ticksMoved: d.G.ticks - t0, fallMoved: d.stage().failedAt - f0 };
+  });
+  check('the map opens over a fallen level and holds it still',
+    held.open && held.paused && held.ticksMoved === 0 && held.fallMoved === 0,
+    JSON.stringify(held));
+  await page.click('#map-close', { timeout: 3000 });
+  const resumed = await page.evaluate(() => ({ paused: __dreybird.G.paused, mode: __dreybird.G.mode }));
+  check('and Back resumes it', resumed.paused === false && resumed.mode === 'stage',
+    JSON.stringify(resumed));
+  await page.click('#btn-world', { timeout: 3000 });
+  await page.click('#map-body .land-row:not(.unknown)', { timeout: 3000 });
   const home = await page.evaluate(() => {
     const d = __dreybird;
-    return { mode: d.G.mode, opened: d.land() ? d.land().opened : null,
-             got: d.land() ? d.land().got.filter(Boolean).length : -1 };
+    // Arriving is not enough: the land has to be ALIVE. The map paused the
+    // level behind it, and a travel that forgot to lift that left the glade
+    // frozen with Pause refusing to open -- while this very check was green,
+    // because it only asked where he was.
+    const t0 = d.G.ticks, y0 = d.bird.y;
+    d.holdAt(200, 100); for (let i = 0; i < 30; i++) d.tick(); d.letGo();
+    return { mode: d.G.mode, id: d.land() ? d.land().id : null,
+             opened: d.land() ? d.land().opened : null,
+             got: d.land() ? d.land().got.filter(Boolean).length : -1,
+             paused: d.G.paused, ticksMoved: d.G.ticks - t0, moved: Math.abs(d.bird.y - y0) > 1 };
   });
-  check('the map button leaves the level for the glade, exactly as it was',
-    home.mode === 'explore' && home.opened === true && home.got === 3,
+  check('choosing a land on the map leaves the level for it, exactly as it was',
+    home.mode === 'explore' && home.id === 'glade' && home.opened === true && home.got === 3,
     JSON.stringify(home));
+  check('and the land he arrives in is alive, not paused behind the closed map',
+    home.paused === false && home.ticksMoved > 0 && home.moved === true,
+    JSON.stringify({ paused: home.paused, ticksMoved: home.ticksMoved, moved: home.moved }));
+
+  // The other way out of a held level is Free flight; it must not hand over
+  // a frozen title screen either.
+  await page.evaluate(() => {
+    const d = __dreybird;
+    d.resetWorld(); d.enterStage(d.STAGES.reeds);
+    for (let i = 0; i < 400 && !d.stage().failed; i++) d.tick();
+  });
+  await page.click('#btn-world', { timeout: 3000 });
+  await page.click('#map-free', { timeout: 3000 });
+  const free = await page.evaluate(() => {
+    const d = __dreybird;
+    const t0 = d.G.ticks; for (let i = 0; i < 30; i++) d.tick();
+    return { paused: d.G.paused, ready: d.G.state === d.states.READY, ticksMoved: d.G.ticks - t0 };
+  });
+  check('Free flight from a held level hands over a live title screen',
+    free.paused === false && free.ready && free.ticksMoved > 0, JSON.stringify(free));
   await context.close();
 }
 
@@ -549,6 +598,106 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- west is a door where a land declares one --------------------------
+{
+  const { context, page } = await fresh();
+  const back = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.story.lands = { glade: { got: [true, false, true], talked: 1, opened: false } };
+    d.resetWorld(); d.enterLand('bank');
+    d.holdAt(0, 240);
+    for (let i = 0; i < 300 && d.G.mode === 'explore' && d.land().id === 'bank'; i++) d.tick();
+    d.letGo();
+    const arrived = { id: d.land().id, got: d.land().got.slice(), x: Math.round(d.bird.x) };
+    // And from the glade, west is still the edge of the world.
+    d.holdAt(0, 240);
+    for (let i = 0; i < 300; i++) d.tick();
+    d.letGo();
+    return { arrived, still: d.land().id, x: Math.round(d.bird.x) };
+  });
+  check('flying west from the Bank puts him in the Glade, exactly as he left it',
+    back.arrived.id === 'glade' && back.arrived.got.join() === 'true,false,true' && back.arrived.x > 200,
+    JSON.stringify(back.arrived));
+  check('and west of the Glade is still the edge', back.still === 'glade' && back.x < 30,
+    JSON.stringify({ still: back.still, x: back.x }));
+  await context.close();
+}
+
+// --- the map tells the truth --------------------------------------------
+{
+  const { context, page } = await fresh();
+  const truth = await page.evaluate(() => {
+    const d = __dreybird;
+    const pr = d.active();
+    pr.story.at = 'bank'; pr.story.flock = ['sky'];
+    pr.story.flags = ['cleared:reeds'];
+    pr.story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
+    d.resetWorld(); d.enterLand('bank');
+    d.openMap();
+    const rows = [...document.querySelectorAll('#map-body .land-row')].map(r => ({
+      name: r.querySelector('.name').textContent, note: r.querySelector('.req').textContent,
+      here: !!r.querySelector('.here'), disabled: r.disabled }));
+    const passages = [...document.querySelectorAll('#map-body .passage')].map(p => p.textContent);
+    const flock = document.querySelector('#map-body .sheet-section').textContent;
+    const previews = [...document.querySelectorAll('#map-body .flock canvas')].map(c => {
+      const g = c.getContext('2d');
+      const px = g.getImageData(0, 0, c.width, c.height).data;
+      let lit = 0; for (let i = 3; i < px.length; i += 4) if (px[i] > 0) lit++;
+      return lit;
+    });
+    d.closeMap(false);
+    return { rows, passages, flock, previews };
+  });
+  const byName = n => truth.rows.find(r => r.name === n);
+  check('the land he is in reads here', byName('THE FAR BANK') && byName('THE FAR BANK').here);
+  check('a land not yet reached is hidden and cannot be tapped',
+    truth.rows.some(r => r.name === '?????' && r.disabled && r.note === 'not yet'),
+    JSON.stringify(truth.rows));
+  check('a cleared passage says so, and an uncleared one does not',
+    /Reeds.*cleared/i.test(truth.passages[0]) && /Narrows.*not yet/i.test(truth.passages[1]),
+    JSON.stringify(truth.passages));
+  check('the flock count is the flock', /1 OF 12/.test(truth.flock), truth.flock);
+  check('and the found birds are real pixels, not empty canvases',
+    truth.previews.length === 2 && truth.previews.every(n => n > 50),
+    JSON.stringify(truth.previews));
+  await context.close();
+}
+
+// --- the map is opened by its button, and goes places -------------------
+{
+  const { context, page } = await fresh();
+  await page.evaluate(() => {
+    const d = __dreybird;
+    d.active().story.at = 'kiln';
+    d.active().story.lands = { glade: { got: [true, true, true], talked: 1, opened: true },
+                               bank: { got: [true, true, true], talked: 1, opened: true } };
+    d.resetWorld(); d.enterLand('kiln');
+  });
+  await page.click('#btn-world', { timeout: 3000 });
+  const open = await page.evaluate(() => !document.getElementById('map').hidden);
+  check('clicking the map button opens the map', open === true);
+  // Tap the Glade: three lands back, no level to re-fly.
+  await page.click('#map-body .land-row:not(.unknown)', { timeout: 3000 });
+  const went = await page.evaluate(() => ({ mode: __dreybird.G.mode, id: __dreybird.land().id }));
+  check('tapping a visited land goes there directly',
+    went.mode === 'explore' && went.id === 'glade', JSON.stringify(went));
+  await page.click('#btn-world', { timeout: 3000 });
+  await page.click('#map-free', { timeout: 3000 });
+  const free = await page.evaluate(() => ({ mode: __dreybird.G.mode, x: __dreybird.bird.x }));
+  check('and Free flight reaches the endless game with the fixed-x bird',
+    free.mode === 'free' && free.x === 64, JSON.stringify(free));
+  await context.close();
+}
+
+// --- the README sends people to this game, not the other one ------------
+{
+  const { readFile } = await import('node:fs/promises');
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+  check('the README does not point at the classic game\'s address',
+    readme.indexOf('github.io/DreyBird') < 0 && readme.indexOf('github.io/dreybirds-world') >= 0);
+}
+
 // --- every land actually draws ------------------------------------------
 /* The suite drives the simulation and almost never renders, so a land whose
    DRAWING referenced a constant that no longer existed passed 47 checks and
@@ -572,6 +721,7 @@ for (const blockFont of [false, true]) {
           d.tapLand(0, 0);
           d.frame(performance.now() + 300);
         }
+        d.openMap(); d.closeMap(false);
         out.push([id, 'ok']);
       } catch (e) { out.push([id, String(e)]); }
     }
