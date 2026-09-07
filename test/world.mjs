@@ -263,6 +263,8 @@ for (const blockFont of [false, true]) {
     for (let i = 0; i < 200 && d.G.mode === 'explore'; i++) d.tick();
     d.letGo();
     const opened = d.G.mode;
+    // Through the door the level waits for a tap, as a player would give one.
+    d.press();
 
     // Fly the level. Held at the gap centre it can be flown honestly.
     const flyStage = () => {
@@ -314,7 +316,7 @@ for (const blockFont of [false, true]) {
 
     // Cleared: onward to the far side.
     d.resetWorld(); d.enterLand('glade');
-    d.enterStage(d.STAGES.reeds);
+    d.enterStage(d.STAGES.reeds); d.press();
     let g = 0;
     while (!d.stage().won && g++ < 20000) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
     for (let i = 0; i < 200; i++) d.tick();
@@ -323,7 +325,7 @@ for (const blockFont of [false, true]) {
 
     // Given up on: back to the side he came from.
     d.resetWorld(); d.enterLand('glade');
-    d.enterStage(d.STAGES.reeds);
+    d.enterStage(d.STAGES.reeds); d.press();
     d.endRun();
     const quit = { at: d.land().id, saved: pr.story.at };
 
@@ -357,7 +359,7 @@ for (const blockFont of [false, true]) {
     pr.coins = 500; pr.xp = 1234; pr.story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
     d.resetWorld(); d.enterLand('glade');
     const gladeBefore = JSON.stringify(d.land().got) + d.land().opened;
-    d.enterStage(d.STAGES.reeds);
+    d.enterStage(d.STAGES.reeds); d.press();
     const before = { coins: pr.coins, xp: pr.xp, games: pr.stats.games };
 
     // Fly a few pipes, then into the ground.
@@ -411,7 +413,7 @@ for (const blockFont of [false, true]) {
     const d = __dreybird;
     d.active().story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
     d.resetWorld(); d.enterLand('glade');
-    d.enterStage(d.STAGES.reeds);
+    d.enterStage(d.STAGES.reeds); d.press();
     // Fall.
     d.bird.y = d.GY; d.bird.vy = 25;
     for (let i = 0; i < 200 && !d.stage().failed; i++) d.tick();
@@ -479,7 +481,7 @@ for (const blockFont of [false, true]) {
   // a frozen title screen either.
   await page.evaluate(() => {
     const d = __dreybird;
-    d.resetWorld(); d.enterStage(d.STAGES.reeds);
+    d.resetWorld(); d.enterStage(d.STAGES.reeds); d.press();
     for (let i = 0; i < 400 && !d.stage().failed; i++) d.tick();
   });
   await page.click('#btn-world', { timeout: 3000 });
@@ -501,7 +503,7 @@ for (const blockFont of [false, true]) {
     const d = __dreybird;
     d.active().story.lands = { glade: { got: [true, true, true], talked: 1, opened: true } };
     d.resetWorld(); d.enterLand('glade');
-    d.enterStage(d.STAGES.reeds);
+    d.enterStage(d.STAGES.reeds); d.press();
     d.pauseRun();
     const label = document.getElementById('paused-quit').textContent;
     d.endRun();
@@ -526,7 +528,7 @@ for (const blockFont of [false, true]) {
       d.frame(performance.now() + 1);
       return Array.from(g.getImageData(0, Math.round(150 * scale), cv.width, 1).data).join(',');
     };
-    d.resetWorld(); d.enterStage(d.STAGES.reeds);
+    d.resetWorld(); d.enterStage(d.STAGES.reeds); d.press();
     const announced = row();
     // Long enough for the card to have gone.
     for (let i = 0; i < 200; i++) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
@@ -545,7 +547,7 @@ for (const blockFont of [false, true]) {
     const pr = d.active();
     pr.owned = []; pr.story.flock = []; pr.story.flags = [];
     const clear = () => {
-      d.resetWorld(); d.enterStage(d.STAGES.reeds);
+      d.resetWorld(); d.enterStage(d.STAGES.reeds); d.press();
       let guard = 0;
       while (!d.stage().won && guard++ < 20000) {
         if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
@@ -587,7 +589,7 @@ for (const blockFont of [false, true]) {
     };
     const clean = run();
     // A whole level in between, hazard knob and all.
-    d.resetWorld(); d.enterStage(d.STAGES.reeds);
+    d.resetWorld(); d.enterStage(d.STAGES.reeds); d.press();
     for (let i = 0; i < 400; i++) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
     d.resetWorld();
     const after = run();
@@ -698,6 +700,91 @@ for (const blockFont of [false, true]) {
     readme.indexOf('github.io/DreyBird') < 0 && readme.indexOf('github.io/dreybirds-world') >= 0);
 }
 
+// --- a level waits for the first tap, like the title screen does --------
+// The door used to drop him from rest with no flap: the ground had him at
+// tick 44, before the first pipe or the end of the title, and the retry tap
+// did the same. These do what a player does and check what a player sees.
+{
+  const { context, page } = await fresh();
+  const r = await page.evaluate(() => {
+    const d = __dreybird;
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds);
+    const y0 = d.bird.y, px0 = d.pipes[0].x;
+    for (let i = 0; i < 300; i++) d.tick();
+    const waited = { failed: d.stage().failed, drift: Math.round(Math.abs(d.bird.y - y0)),
+                     pipeMoved: d.pipes[0].x !== px0, runTicks: d.G.runTicks };
+    d.press();
+    const vy = d.bird.vy;
+    for (let i = 0; i < 10; i++) d.tick();
+    const flying = { vy, runTicks: d.G.runTicks, pipeMoved: d.pipes[0].x !== px0 };
+    for (let i = 0; i < 400 && !d.stage().failed; i++) d.tick();
+    const fell = d.stage().failed;
+    d.press();                               // the retry tap
+    for (let i = 0; i < 300; i++) d.tick();  // ...and then nothing, for five seconds
+    const retry = { failed: d.stage().failed, waiting: d.stage().ready === true };
+    return { waited, flying, fell, retry };
+  });
+  check('a level waits for the first tap: nothing moves and nothing can kill him',
+    !r.waited.failed && r.waited.drift < 8 && !r.waited.pipeMoved && r.waited.runTicks === 0,
+    JSON.stringify(r.waited));
+  check('the first tap starts it with a flap',
+    r.flying.vy < 0 && r.flying.runTicks === 10 && r.flying.pipeMoved, JSON.stringify(r.flying));
+  check('after a fall the retry tap brings the wait back, not another fall',
+    r.fell && !r.retry.failed && r.retry.waiting, JSON.stringify(r.retry));
+
+  const words = await page.evaluate(() => {
+    const d = __dreybird;
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds);
+    const seen = new Set(), orig = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (s) { seen.add(String(s)); return orig.apply(this, arguments); };
+    d.frame(performance.now());
+    const waiting = [...seen].filter(x => /FLY|REEDS/.test(x));
+    seen.clear();
+    d.press(); for (let i = 0; i < 130; i++) d.tick();
+    d.frame(performance.now() + 2200);
+    CanvasRenderingContext2D.prototype.fillText = orig;
+    return { waiting, after: [...seen].filter(x => /FLY|REEDS/.test(x)) };
+  });
+  check('and the screen says TAP TO FLY until the tap, then the card is gone',
+    words.waiting.some(x => /TAP TO FLY/.test(x)) && words.waiting.some(x => /THE REEDS/.test(x)) &&
+    !words.after.some(x => /TAP TO FLY|THE REEDS/.test(x)),
+    JSON.stringify(words));
+  await context.close();
+}
+
+// --- every pipe in a level is the level's width -------------------------
+// The first three pipes of every level were the endless game's 104, because
+// the level's gap was applied after they had been spawned.
+{
+  const { context, page } = await fresh();
+  const gaps = await page.evaluate(() => {
+    const d = __dreybird, out = {};
+    for (const id of Object.keys(d.STAGES)) {
+      const st = d.STAGES[id];
+      d.resetWorld(); d.enterLand(st.from); d.enterStage(st); d.press();
+      const hs = new Set(d.pipes.map(p => p.h));
+      let g = 0;
+      while (!d.stage().won && g++ < 20000) {
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+        d.bird.vy = 0; d.tick();
+        for (const q of d.pipes) hs.add(q.h);
+      }
+      out[id] = { want: st.gap, seen: [...hs] };
+    }
+    d.active().assist = true;
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds); d.press();
+    out.assist = { want: d.STAGES.reeds.gap, seen: [...new Set(d.pipes.map(p => p.h))] };
+    d.active().assist = false;
+    return out;
+  });
+  const exact = k => gaps[k].seen.length === 1 && gaps[k].seen[0] === gaps[k].want;
+  check("every pipe in a level is the level's width, the first three included",
+    Object.keys(gaps).filter(k => k !== 'assist').every(exact), JSON.stringify(gaps));
+  check('and assist does not widen a level: it is as wide as it was designed',
+    exact('assist'), JSON.stringify(gaps.assist));
+  await context.close();
+}
+
 // --- every land actually draws ------------------------------------------
 /* The suite drives the simulation and almost never renders, so a land whose
    DRAWING referenced a constant that no longer existed passed 47 checks and
@@ -760,11 +847,11 @@ for (const blockFont of [false, true]) {
 
     d.resetWorld(); d.enterLand('glade');
     const gladeOpen = errand();
-    d.enterStage(d.STAGES.reeds);
+    d.enterStage(d.STAGES.reeds); d.press();
     const afterReeds = fly();
     const bankOpenBefore = d.land().opened;
     const bankOpen = errand();
-    d.enterStage(d.STAGES.narrows);
+    d.enterStage(d.STAGES.narrows); d.press();
     const afterNarrows = fly();
 
     return { gladeOpen, afterReeds, bankOpenBefore, bankOpen, afterNarrows,
@@ -816,7 +903,7 @@ for (const blockFont of [false, true]) {
   const hard = await page.evaluate(() => {
     const d = __dreybird;
     const measure = st => {
-      d.resetWorld(); d.enterStage(st);
+      d.resetWorld(); d.enterStage(st); d.press();
       /* Any hazard, not just movers. Counting movers alone called a level
          hazard-free when its seed happened to produce a gust instead --
          which is the same "nominally on" mistake this check exists to catch,

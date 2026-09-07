@@ -1919,7 +1919,7 @@
     }
   }
 
-  function startPlay(seed) {
+  function startPlay(seed, gap) {
     G.state = PLAYING;
     G.ticks = 0;
     G.runTicks = 0;
@@ -1953,7 +1953,12 @@
     const t = traitsNow();
     G.gravity = GRAVITY * (G.runAssist ? ASSIST.gravity : 1) * t.gravity;
     G.flapV   = FLAP_V  * (G.runAssist ? ASSIST.flap : 1) * t.flap;
-    G.gap     = GAP     + (G.runAssist ? ASSIST.gap : 0);
+    /* A level hands in its own gap and gets it HERE, before the three opening
+       pipes are spawned below. Setting it afterwards, which is what happened,
+       left every level opening on the endless game's width and only widening
+       from the fourth pipe -- the beginner's level started on its hardest
+       pipes. Assist does not widen a level: it is as wide as it was designed. */
+    G.gap     = gap != null ? gap : GAP + (G.runAssist ? ASSIST.gap : 0);
     G.speed   = SPEED   * (G.runAssist ? ASSIST.speed : 1);
     /* Derived rather than fixed. The pull must never be strong enough to
        hold the bird up on its own, or "do nothing and you sink" would stop
@@ -2325,8 +2330,13 @@
      suspend-rather-than-save shape the Roost uses. */
   function enterStage(st) {
     G.mode = 'stage';
+    /* ready: the level waits for his first tap, the way the title screen
+       does. Without the wait the door dropped him from rest with no flap and
+       the ground had him at tick 44 -- before the first pipe, before the
+       title had finished -- and the retry tap did exactly the same, which
+       read as a level stuck in a loop. */
     G.stage = { id: st.id, target: st.pipes, won: false, wonAt: 0, done: false,
-                failed: false, failedAt: 0, reached: 0, cameAt: 0 };
+                failed: false, failedAt: 0, reached: 0, cameAt: 0, ready: true };
     bird.x = BIRD_X; bird.px = BIRD_X;
     bird.vx = 0;
     bird.y = 240; bird.py = 240; bird.vy = 0;
@@ -2340,15 +2350,12 @@
     G.shield = 0; G.slow = 0; G.invuln = 0; G.hitStop = 0;
     G.flash = 0; G.shake = 0;
     G.hazardMul = st.hazards;
-    startPlay(st.seed);
+    startPlay(st.seed, st.gap);
     /* Pinned, not drifting. The day/night cycle rides G.cycle, which
        deliberately survives between runs -- so without this the same level
        is dusk on one attempt and midnight on the next, and "the same flight
        every time" stops being true of the part you actually look at. */
     G.bg = st.bg;
-    // startPlay fixes the run's physics from the bird's traits; the stage's
-    // own gap is applied after, so a level is as wide as it was designed.
-    G.gap = st.gap;
     G.stage.cameAt = G.ticks;
     G.flash = reduceMotion ? 0 : 0.5;
   }
@@ -2448,6 +2455,11 @@
       G.cycle += G.speed;
     } else if (G.state === PLAYING && G.mode === 'stage' && G.stage.failed) {
       // Fallen: the level waits. Nothing moves until he decides.
+    } else if (G.state === PLAYING && G.mode === 'stage' && G.stage.ready) {
+      // Not started: the level waits for his first tap. He bobs in place as
+      // on the title screen; the pipes hold, gravity holds, nothing can kill.
+      bird.y = 240 + Math.sin(G.ticks / 15) * 4;
+      bird.rot = Math.sin(G.ticks / 15) * 0.05;
     } else if (G.state === PLAYING && G.mode === 'explore') {
       tickExplore();
     } else if (G.state === PLAYING && G.roost) {
@@ -3205,13 +3217,20 @@
     const S = G.stage, st = stageNow();
     if (!S || !st || S.won || S.failed) return;
     const age = G.ticks - S.cameAt;
-    if (age > 110) return;
-    const fade = age < 80 ? 1 : 1 - (age - 80) / 30;
+    if (!S.ready && age > 110) return;
+    // While the level waits the card holds at full strength; the fade runs
+    // from the tap that starts the level.
+    const fade = S.ready || age < 80 ? 1 : 1 - (age - 80) / 30;
     ctx.save();
     ctx.globalAlpha = clamp(fade, 0, 1);
     textOut(ctx, st.name, W / 2, 150, 14, '#ffe07a', '#20160a');
     textOut(ctx, st.pipes + ' PIPES TO THE FAR SIDE', W / 2, 176, 6,
       'rgba(255,255,255,.8)', '#20160a');
+    if (S.ready) {
+      // The pulse is in the size, never in whether it is drawn.
+      const beat = Math.floor(G.ticks / 20) % 2 === 0;
+      textOut(ctx, 'TAP TO FLY', W / 2, 206, beat ? 9 : 8, '#ffffff', '#20160a');
+    }
     ctx.restore();
   }
 
@@ -3641,6 +3660,8 @@
     audio.ensure();
     if (music.on && !audio.muted) music.start();
     askPersist();
+    // A waiting level starts on this tap, and its title fades from here.
+    if (G.mode === 'stage' && G.stage.ready) { G.stage.ready = false; G.stage.cameAt = G.ticks; }
     if (G.state === READY) { startPlay(); flap(); }
     else if (G.state === PLAYING) flap();
     else if (G.state === OVER && G.ticks - G.overAt > 24) resetWorld();

@@ -15,6 +15,11 @@ You are DreyBird. Find the scattered flock. The 12 skins are the flock. Hold to 
 
 Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home. The staged tree adds west doors, the map sheet, README edits and 13 world checks, and all 13 suites, 283 checks, pass on it. That staged map has a soft-lock: travelling from the map over a fallen stage leaves G.paused true forever, because openMap sets it at index.html:4226-4227, closeMap keeps it at 4234, and travel at 4218-4222 never clears it. The fallen panel at 3191 advertises exactly that path. Beyond that, the first ten minutes fail on seams, not missing content: stage entry sets vy 0 and the bird falls at tick 44 before any pipe, the first three pipes use the free gap 104, the rescued Bluebird stays locked in the shop, and the title never points to the story. Space in a land applies the -6.7 flap, and a thumb held at the left edge chains Kiln to Bank to Glade with no release. The page runs in quirks mode with no doctype, and the install identity is still the classic game's. The gate is CI-only in practice: world.mjs took 279 s locally, 4 s in CI.
 
+## Progress log
+
+- `c210929` M0 shipped: west doors, the map sheet, the soft-lock fixed with its check. CI run #11 green.
+- M1 door beat and stage gap: a level waits for the first tap and every pipe in it is the level's width. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**
