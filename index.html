@@ -108,6 +108,14 @@
   .tools { position: absolute; top: 8px; display: flex; gap: 8px; }
   .tools-left { left: 8px; }
   .tools-right { right: 8px; }
+  /* The map button beckons until the glade has been seen. Under reduced
+     motion the animation collapses to its first frame and the border alone
+     carries the cue. */
+  @keyframes beckon {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 224, 122, 0); }
+    50% { box-shadow: 0 0 0 5px rgba(255, 224, 122, .6); }
+  }
+  #stage[data-hint="1"] #btn-world { animation: beckon 1.6s ease-in-out infinite; border-color: #ffe07a; }
   .iconbtn {
     width: 44px;
     height: 44px;
@@ -1094,6 +1102,11 @@
      score-gated bird whether or not it has been reached. */
   const home = b => !!b && (b.id === 'classic' ||
     (!!profile && (profile.story.flock.indexOf(b.id) >= 0 || available(b))));
+
+  /* Has this player ever stood in the glade? The flag is stamped on arrival;
+     the other two clauses recognise a save from before the flag existed. */
+  const seenGlade = () => !!profile && (profile.story.flags.indexOf('seen:glade') >= 0 ||
+    !!profile.story.lands.glade || profile.story.at !== 'glade');
 
   function buy(item) {
     if (!profile || !item || owns(item) || earned(item)) return false;
@@ -2377,15 +2390,21 @@
     audio.power();
 
     const st = stageNow();
-    if (st && st.finds && profile) {
-      const bird_ = SKINS.find(b => b.id === st.finds);
-      const key = bird_ && keyOf(bird_);
-      if (key && profile.owned.indexOf(key) < 0) {
-        profile.owned.push(key);
-        S.found = st.finds;
+    if (st && profile) {
+      // A level cleared is the whole tutorial too. Only a finished free run
+      // used to retire the title's flap lesson, so a player who only ever
+      // flew the story kept "EACH TAP LIFTS YOU" forever.
+      profile.taught = true;
+      if (st.finds) {
+        const bird_ = SKINS.find(b => b.id === st.finds);
+        const key = bird_ && keyOf(bird_);
+        if (key && profile.owned.indexOf(key) < 0) {
+          profile.owned.push(key);
+          S.found = st.finds;
+        }
+        const flock = profile.story.flock;
+        if (flock.indexOf(st.finds) < 0) flock.push(st.finds);
       }
-      const flock = profile.story.flock;
-      if (flock.indexOf(st.finds) < 0) flock.push(st.finds);
       if (profile.story.flags.indexOf('cleared:' + st.id) < 0) {
         profile.story.flags.push('cleared:' + st.id);
       }
@@ -2414,7 +2433,13 @@
 
   function enterLand(id) {
     G.mode = 'explore';
-    if (profile) { profile.story.at = id; saveProfile(); }
+    if (profile) {
+      profile.story.at = id;
+      // Seen is seen. story.lands[id] is written only on a pickup, so it
+      // cannot say whether he has ARRIVED somewhere; this can.
+      if (profile.story.flags.indexOf('seen:' + id) < 0) profile.story.flags.push('seen:' + id);
+      saveProfile();
+    }
     const kept = (profile && profile.story.lands[id]) || null;
     const want = (LANDS[id].pickups ? LANDS[id].pickups.at.length : 0);
     G.explore = { id: id, t: 0,
@@ -3084,11 +3109,27 @@
     ctx.beginPath(); ctx.moveTo(W - 18, 24); ctx.lineTo(W - 18, GY); ctx.stroke();
     ctx.restore();
     void land;
-    textOut(ctx, 'THE WORLD ENDS HERE', W / 2, 96, 7, '#ffe07a', '#20160a');
+    /* The end of the world is a card, not a 7px notice: how much of the
+       flock is home, from the same answer the map and the shop give, with
+       the birds themselves, and where the rest is. Derived from data, so it
+       moves by itself when the next land lands. */
+    const homeBirds = SKINS.filter(home);
+    textOut(ctx, homeBirds.length + ' OF ' + SKINS.length + ' ARE HOME', W / 2, 88, 7, '#ffe07a', '#20160a');
+    const step = Math.min(24, Math.floor((W - 40) / Math.max(1, homeBirds.length)));
+    const x0 = W / 2 - (homeBirds.length - 1) * step / 2;
+    homeBirds.forEach((b, i) => {
+      ctx.save();
+      ctx.translate(x0 + i * step, 114);
+      ctx.scale(0.55, 0.55);
+      drawBird(ctx, 0, 0, 0, b, 0, 1);
+      ctx.restore();
+    });
+    textOut(ctx, homeBirds.length < SKINS.length ? 'THE REST ARE STILL OUT THERE' : 'THE WHOLE FLOCK, HOME',
+      W / 2, 136, 6, 'rgba(255,255,255,.85)', '#20160a');
     for (const [k, ln] of wrapLines(ctx,
-      'For now. More of it is being built. West is the way back.',
+      'More of the world is being built. West is the way back.',
       W - 56, 6).entries()) {
-      textOut(ctx, ln, W / 2, 116 + k * 13, 6, 'rgba(255,255,255,.8)', '#20160a');
+      textOut(ctx, ln, W / 2, 172 + k * 13, 6, 'rgba(255,255,255,.8)', '#20160a');
     }
   }
 
@@ -3401,7 +3442,15 @@
     // Nobody should have to guess at the rules on their first go. One
     // line, below the prompt, where it cannot sit on top of the bird —
     // the first version put a panel straight through it.
-    if (profile && !profile.taught) {
+    /* One line at a time, and the story first. Nothing on this screen said
+       where the campaign was: the map button is unlabelled, top left, and a
+       new player had no reason to press it. Once the glade has been seen the
+       line retires and the flap lesson takes its turn, until a run is done. */
+    setHint(profile && !seenGlade());
+    if (profile && !seenGlade()) {
+      textOut(ctx, 'THE FLOCK IS OUT THERE', W / 2, 330, 6, '#cdefff', '#20160a');
+      textOut(ctx, 'TAP THE MAP, TOP LEFT', W / 2, 343, 6, '#ffe07a', '#20160a');
+    } else if (profile && !profile.taught) {
       textOut(ctx, 'EACH TAP LIFTS YOU. MIND THE GAPS.', W / 2, 336, 6, '#cdefff', '#20160a');
     }
 
@@ -3657,7 +3706,15 @@
   const btnSkins = document.getElementById('btn-skins');
   const btnSound = document.getElementById('btn-sound');
 
+  // The beckoning map button is a DOM attribute; written only when it changes.
+  let hintOn = null;
+  function setHint(on) {
+    const v = on ? '1' : '0';
+    if (hintOn !== v) { hintOn = v; stage.dataset.hint = v; }
+  }
+
   function syncStage() {
+    if (G.state !== READY) setHint(false);
     /* A land, and a level you have fallen in, are both places you are meant
        to be able to leave -- so the controls stay live rather than fading out
        the way they do mid-flight. */
@@ -4226,9 +4283,13 @@
       if (STAGES[id]) {
         const st = STAGES[id];
         const done = profile.story.flags.indexOf('cleared:' + id) >= 0;
+        // A passage is named once its near side has been reached. Before
+        // that the map named places the player had never heard of, between
+        // lands it still called ?????.
+        const heard = visited(st.from);
         const p = document.createElement('div');
         p.className = 'passage' + (done ? ' done' : '');
-        p.textContent = st.name + (done ? '  ·  cleared' : '  ·  not yet');
+        p.textContent = (heard ? st.name : '?????') + (done ? '  ·  cleared' : '  ·  not yet');
         mapBody.appendChild(p);
         continue;
       }
@@ -4244,11 +4305,13 @@
       name.textContent = known ? land.name : '?????';
       const note = document.createElement('span');
       note.className = 'req';
-      note.textContent = !known ? 'not yet'
+      const state = !known ? 'not yet'
         : id === here ? 'here'
         : land.ends ? 'the edge, for now'
         : lk && lk.opened ? 'way east open'
         : land.npc ? 'errand waiting' : 'visited';
+      // A row you can tap says so. A fresh player saw a plain-looking list.
+      note.textContent = known && id !== here ? state + '  ·  tap to go' : state;
       b.append(name, note);
       if (known) b.addEventListener('click', () => travel(id));
       mapBody.appendChild(b);

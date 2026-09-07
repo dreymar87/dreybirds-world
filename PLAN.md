@@ -20,7 +20,8 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
 - `c210929` M0 shipped: west doors, the map sheet, the soft-lock fixed with its check. CI run #11 green.
 - `aa84e4c` M1 door beat and stage gap: a level waits for the first tap and every pipe in it is the level's width. CI run #12.
 - `6bf9893` M1 rescue real: a rescued bird can be flown at a best of 0, the map counts what the shop lets you fly, and a flock of strangers reveals nothing. CI run #13.
-- M1 names and sky: a land names itself on arrival, the level's copy names the right places, and a level reads its sky pin instead of overwriting the player's setting. A ten-minute timeout on CI test jobs. This commit.
+- `8967c7c` M1 names and sky: a land names itself on arrival, the level's copy names the right places, and a level reads its sky pin instead of overwriting the player's setting. A ten-minute timeout on CI test jobs. CI run #14.
+- M1 a way in and a way out: the title says where the story is and the map button beckons until the glade is seen, a cleared level retires the flap lesson, the map names only passages he has heard of and says which rows can be tapped, and the Kiln ends on a card that counts the flock. This commit.
 
 ## 3. How we decide
 

@@ -959,6 +959,98 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- the title says where the story is, until the glade has been seen -----
+// Nothing on the title screen said where the campaign was. The map button
+// is unlabelled, top left, and a new player had no reason to press it.
+{
+  const { context, page } = await fresh();
+  const hint = await page.evaluate(() => {
+    const d = __dreybird;
+    const words = () => {
+      const seen = new Set(), orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (s) { seen.add(String(s)); return orig.apply(this, arguments); };
+      d.frame(performance.now() + 100);
+      CanvasRenderingContext2D.prototype.fillText = orig;
+      return [...seen].join(' | ');
+    };
+    const stage = document.getElementById('stage');
+    d.resetWorld();
+    const before = words(), pulse = stage.dataset.hint;
+    d.enterLand('glade'); d.resetWorld();
+    const after = words(), pulseAfter = stage.dataset.hint;
+    return { before, pulse, after, pulseAfter, flags: d.active().story.flags.slice() };
+  });
+  check('a new player is told where the story is, and the map button beckons',
+    /TAP THE MAP/.test(hint.before) && hint.pulse === '1', JSON.stringify({ text: hint.before.slice(0, 160), pulse: hint.pulse }));
+  check('and once the glade has been seen the line retires and the button rests',
+    !/TAP THE MAP/.test(hint.after) && hint.pulseAfter === '0' && hint.flags.indexOf('seen:glade') >= 0,
+    JSON.stringify({ text: hint.after.slice(0, 160), pulse: hint.pulseAfter, flags: hint.flags }));
+
+  const taught = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    pr.taught = false;
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds); d.press();
+    let g = 0;
+    while (!d.stage().won && g++ < 20000) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+    return pr.taught;
+  });
+  check('clearing a level retires the flap lesson for a story-only player', taught === true, String(taught));
+  await context.close();
+}
+
+// --- the map names only what he has heard of, and says what a row does -----
+{
+  const { context, page } = await fresh();
+  const map = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    pr.story = { at: 'glade', flags: ['seen:glade'], flock: [], lands: {} };
+    d.resetWorld(); d.openMap();
+    const passages = [...document.querySelectorAll('#map-body .passage')].map(p => p.textContent);
+    d.closeMap(false);
+    pr.story = { at: 'bank', flags: ['seen:glade', 'seen:bank', 'cleared:reeds'], flock: ['sky'],
+                 lands: { glade: { got: [true, true, true], talked: 1, opened: true } } };
+    d.resetWorld(); d.enterLand('bank'); d.openMap();
+    const rows = [...document.querySelectorAll('#map-body .land-row')].map(r => r.textContent);
+    d.closeMap(false);
+    return { passages, rows };
+  });
+  check('a passage is named once its near side has been reached, and not before',
+    /THE REEDS/.test(map.passages[0]) && /\?\?\?\?\?/.test(map.passages[1]) && !/NARROWS/.test(map.passages[1]),
+    JSON.stringify(map.passages));
+  check('a row he can tap says so, and the row he is on does not',
+    map.rows.some(r => /THE GLADE.*tap to go/.test(r)) && map.rows.some(r => /THE FAR BANK/.test(r) && /here/.test(r) && !/tap to go/.test(r)),
+    JSON.stringify(map.rows));
+  await context.close();
+}
+
+// --- the end of the world is a card that counts the flock ------------------
+// The Kiln ended the world with a 7px notice and one perched bird.
+{
+  const { context, page } = await fresh();
+  const kiln = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    const cv = document.getElementById('game'), g = cv.getContext('2d'), scale = cv.width / d.W;
+    const look = () => {
+      const seen = new Set(), orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (s) { seen.add(String(s)); return orig.apply(this, arguments); };
+      d.frame(performance.now() + 200);
+      CanvasRenderingContext2D.prototype.fillText = orig;
+      const band = g.getImageData(0, Math.round(104 * scale), cv.width, Math.round(20 * scale)).data;
+      return { text: [...seen].join(' | '), band };
+    };
+    const at = flock => { pr.story.flock = flock; d.resetWorld(); d.enterLand('kiln'); for (let i = 0; i < 120; i++) d.tick(); return look(); };
+    const one = at([]), three = at(['sky', 'ember']);
+    let diff = 0;
+    for (let i = 0; i < one.band.length; i += 4) if (one.band[i] !== three.band[i] || one.band[i + 1] !== three.band[i + 1] || one.band[i + 2] !== three.band[i + 2]) diff++;
+    return { one: one.text, three: three.text, diff };
+  });
+  check('the Kiln counts the flock that is home',
+    /1 OF 12 ARE HOME/.test(kiln.one) && /3 OF 12 ARE HOME/.test(kiln.three) && !/WORLD ENDS HERE/.test(kiln.three),
+    JSON.stringify({ one: kiln.one.slice(0, 120), three: kiln.three.slice(0, 120) }));
+  check('and draws the birds that are home, in pixels', kiln.diff > 100, String(kiln.diff));
+  await context.close();
+}
+
 // --- every land actually draws ------------------------------------------
 /* The suite drives the simulation and almost never renders, so a land whose
    DRAWING referenced a constant that no longer existed passed 47 checks and
