@@ -1105,6 +1105,73 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- a door asks for a fresh press ------------------------------------------
+// A thumb resting near the bezel chained Kiln to Bank to Glade in under two
+// seconds, with no arrival beat in between.
+{
+  const { context, page } = await fresh();
+  const r = await page.evaluate(() => {
+    const d = __dreybird;
+    d.resetWorld(); d.enterLand('kiln');
+    d.holdAt(2, 240);
+    const path = [];
+    for (let i = 0; i < 300; i++) { d.tick(); const id = d.land().id; if (path[path.length - 1] !== id) path.push(id); }
+    const xs = Math.round(d.bird.x);
+    // A fresh press carries on.
+    d.holdAt(2, 240);
+    for (let i = 0; i < 300; i++) d.tick();
+    return { path, xs, then: d.land().id };
+  });
+  check('a held thumb takes him through one door and then waits',
+    r.path.join() === 'kiln,bank' && r.xs > 200, JSON.stringify({ path: r.path, x: r.xs }));
+  check('and a fresh press carries on west', r.then === 'glade', r.then);
+  await context.close();
+}
+
+// --- the keyboard is a thumb too, and Space is a tap in a land -------------
+{
+  const { context, page } = await fresh();
+  const k = await page.evaluate(() => {
+    const d = __dreybird;
+    const key = (type, code) => document.dispatchEvent(new KeyboardEvent(type, { code, bubbles: true }));
+    d.resetWorld(); d.enterLand('glade');
+    const x0 = d.bird.x;
+    key('keydown', 'ArrowRight'); for (let i = 0; i < 60; i++) d.tick(); key('keyup', 'ArrowRight');
+    const right = d.bird.x - x0, heldAfter = d.G.paused === false && d.land() ? (d.bird.vx !== 0) : null;
+    const y0 = d.bird.y;
+    key('keydown', 'KeyW'); for (let i = 0; i < 60; i++) d.tick(); key('keyup', 'KeyW');
+    const up = y0 - d.bird.y;
+    // Space is not a flap here...
+    d.bird.vy = 0; key('keydown', 'Space'); const vy = d.bird.vy;
+    // ...it is a tap: beside Thistle it starts the talk.
+    const spot = d.LANDS.glade.npc; d.bird.x = spot.x; d.bird.y = spot.y - 20;
+    key('keydown', 'Space');
+    return { right, up, vy, talking: !!d.land().saying };
+  });
+  check('arrows and WASD steer him in a land', k.right > 20 && k.up > 20, JSON.stringify({ right: Math.round(k.right), up: Math.round(k.up) }));
+  check('Space in a land is a tap, not a flap: no impulse, and it talks to Thistle',
+    k.vy === 0 && k.talking, JSON.stringify({ vy: k.vy, talking: k.talking }));
+  await context.close();
+}
+
+// --- sound starts on the story path ------------------------------------------
+// Only press() woke the audio, and a land's tap handler skipped press().
+{
+  const { context, page } = await fresh();
+  const before = await page.evaluate(() => { const d = __dreybird; d.resetWorld(); d.enterLand('glade'); return d.audio.ctx === null || d.audio.ctx === undefined; });
+  const box = await page.locator('#game').boundingBox();
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.3);
+  // Looked at between finger-down and finger-up: the release is a gesture
+  // too, and an open-air tap's pop would create the context there anyway.
+  // Only the wake on pointerdown has it awake THIS early.
+  await page.mouse.down();
+  const down = await page.evaluate(() => { const d = __dreybird; return { ctx: !!d.audio.ctx, mode: d.G.mode }; });
+  await page.mouse.up();
+  check('a finger down in a land wakes the audio, inside the gesture', before === true && down.ctx === true && down.mode === 'explore',
+    JSON.stringify({ before, down }));
+  await context.close();
+}
+
 // --- every land actually draws ------------------------------------------
 /* The suite drives the simulation and almost never renders, so a land whose
    DRAWING referenced a constant that no longer existed passed 47 checks and

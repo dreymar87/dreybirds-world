@@ -1575,6 +1575,15 @@
       if (!AC) return;
       try { this.ctx = new AC(); } catch (e) { this.ctx = null; }
     },
+    /* Called from inside a pointer or key event, which is the only place a
+       browser lets sound start. In a land the tap handler skipped press(),
+       so the first AudioContext was created by a pickup's pop mid-tick,
+       outside any gesture, and stayed suspended: a story-first player heard
+       nothing until their first free-flight tap. */
+    wake() {
+      this.ensure();
+      if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
+    },
     tone(type, f0, f1, dur, vol, delay) {
       if (this.muted) return;
       this.ensure();
@@ -2202,6 +2211,15 @@
     const E = G.explore;
     E.t++;
 
+    // Arrows and WASD are a thumb held a little way from the bird, so a
+    // keyboard player can reach the doors at all. Recomputed every tick,
+    // so the target moves with him.
+    if (keys.size) {
+      let kx = 0, ky = 0;
+      for (const k of keys) { const v = KEYMAP[k]; if (v) { kx += v[0]; ky += v[1]; } }
+      if (kx || ky) { hold.on = true; hold.x = bird.x + kx * 70; hold.y = bird.y + ky * 70; }
+    }
+
     bird.vy += GLIDE_G;
     if (hold.on) {
       const dx = hold.x - bird.x, dy = hold.y - bird.y;
@@ -2367,6 +2385,7 @@
     bird.vx = 0;
     bird.y = 240; bird.py = 240; bird.vy = 0;
     bird.rot = 0; bird.prot = 0;
+    hold.on = false; keys.clear();           // the level's first tap is a fresh one
     /* startPlay deliberately leaves these alone: in the endless game
        resetWorld has always run first and cleared them. A level does not go
        that way round, so without this a retry began with the score from the
@@ -2461,6 +2480,11 @@
     bird.y = 240; bird.py = 240;
     bird.vx = 0; bird.vy = 0;
     bird.rot = 0; bird.prot = 0;
+    /* A door asks for a fresh press. The thumb that carried him through it
+       stayed held, and since a west door places him at the far side still
+       steering west, a thumb resting near the bezel chained Kiln to Bank to
+       Glade with no arrival beat in between. */
+    hold.on = false; keys.clear();
     syncStage();
   }
 
@@ -3779,6 +3803,8 @@
     hold.on = true; hold.x = pt.x; hold.y = pt.y;
     hold.fromX = pt.x; hold.fromY = pt.y; hold.moved = 0;
     hold.at = performance.now();
+    audio.wake();
+    if (music.on && !audio.muted) music.start();
     if (G.mode !== 'explore') press();
   });
   cv.addEventListener('pointermove', e => {
@@ -3787,6 +3813,15 @@
     hold.x = pt.x; hold.y = pt.y;
     hold.moved = Math.max(hold.moved, Math.hypot(pt.x - hold.fromX, pt.y - hold.fromY));
   });
+  const KEYMAP = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1],
+                   KeyA: [-1, 0], KeyD: [1, 0], KeyW: [0, -1], KeyS: [0, 1] };
+  const keys = new Set();
+  addEventListener('keyup', e => {
+    if (!KEYMAP[e.code]) return;
+    keys.delete(e.code);
+    if (!keys.size && G.mode === 'explore') hold.on = false;
+  });
+
   const release = () => {
     if (!hold.on) return;
     const quick = performance.now() - hold.at < TAP_MS && hold.moved < TAP_SLOP;
@@ -3798,10 +3833,19 @@
   cv.addEventListener('pointerleave', release);
   cv.addEventListener('contextmenu', e => e.preventDefault());
   addEventListener('keydown', e => {
-    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'Enter') {
-      if (document.activeElement && document.activeElement.tagName === 'BUTTON' && e.code === 'Enter') return;
+    if (document.activeElement && document.activeElement.tagName === 'BUTTON' && e.code === 'Enter') return;
+    if (G.mode === 'explore' && KEYMAP[e.code]) {
       e.preventDefault();
-      press();
+      audio.wake();
+      keys.add(e.code);
+      return;
+    }
+    if (e.code === 'Space' || e.code === 'ArrowUp' || e.code === 'Enter') {
+      e.preventDefault();
+      // In a land a key is a tap, not a flap: Space used to apply the
+      // classic -6.7 impulse to a bird that steers.
+      if (G.mode === 'explore') { audio.wake(); tapLand(bird.x, bird.y); }
+      else press();
     }
     if (e.code === 'Escape') {
       if (!sheet.hidden) closeSheet();
@@ -5061,7 +5105,7 @@
       createProfile, switchProfile, deleteProfile, exportSave, importSave,
       saveState, fingerprint, markSaved, refreshSaveButton,
       crashInfo: () => ({ crashed: crashed, count: crashCount }),
-      music,
+      music, audio,
       breakFrame: n => { window.__breakFrames = n; },
       saveButtonText: () => document.getElementById('player-export').textContent,
       // shop
