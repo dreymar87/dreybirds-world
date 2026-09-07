@@ -867,6 +867,98 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- a land names itself on arrival -----------------------------------------
+// The title block lived in the tap handler and drew for one frame, if at all.
+{
+  const { context, page } = await fresh();
+  const named = await page.evaluate(() => {
+    const d = __dreybird;
+    const seen = new Set(), orig = CanvasRenderingContext2D.prototype.fillText;
+    CanvasRenderingContext2D.prototype.fillText = function (s) { seen.add(String(s)); return orig.apply(this, arguments); };
+    d.resetWorld(); d.enterLand('bank');
+    d.frame(performance.now());
+    const arriving = [...seen];
+    seen.clear();
+    for (let i = 0; i < 200; i++) d.tick();
+    d.frame(performance.now() + 3400);
+    const later = [...seen];
+    CanvasRenderingContext2D.prototype.fillText = orig;
+    return { arriving, later };
+  });
+  check('a land shows its name on arrival', named.arriving.indexOf('THE FAR BANK') >= 0, JSON.stringify(named.arriving));
+  check('and the card is gone a few seconds later', named.later.indexOf('THE FAR BANK') < 0, JSON.stringify(named.later));
+  await context.close();
+}
+
+// --- the level's copy names the right places -------------------------------
+// "the reeds" and "the glade" were literals, so the Narrows told the player
+// Ember was found in the reeds and that the glade was behind him, and the
+// pause button said "Back to the glade" while delivering him to the Bank.
+{
+  const { context, page } = await fresh();
+  const words = await page.evaluate(() => {
+    const d = __dreybird;
+    const hook = () => { const seen = new Set(), orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (s) { seen.add(String(s)); return orig.apply(this, arguments); };
+      return () => { CanvasRenderingContext2D.prototype.fillText = orig; return [...seen].join(' | '); }; };
+    d.resetWorld(); d.enterLand('bank'); d.enterStage(d.STAGES.narrows); d.press();
+    for (let i = 0; i < 400 && !d.stage().failed; i++) d.tick();
+    for (let i = 0; i < 30; i++) d.tick();
+    let done = hook(); d.frame(performance.now() + 5000); const fallen = done();
+    d.pauseRun();
+    const quit = document.getElementById('paused-quit').textContent;
+    const note = document.getElementById('paused-note').textContent;
+    d.endRun();
+    const where = d.land().id;
+    d.resetWorld(); d.startPlay(); d.pauseRun();
+    const freeQuit = document.getElementById('paused-quit').textContent;
+    const freeNote = document.getElementById('paused-note').textContent;
+    d.resumeRun(); d.resetWorld();
+    // and the arrival card, after the Narrows are flown
+    d.enterLand('bank'); d.enterStage(d.STAGES.narrows); d.press();
+    let g = 0;
+    while (!d.stage().won && g++ < 20000) { if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+    for (let i = 0; i < 200; i++) d.tick();
+    done = hook(); d.frame(performance.now() + 9000); const arrived = done();
+    return { fallen, quit, note, where, freeQuit, freeNote, arrived };
+  });
+  check('fallen in the Narrows, the panel names the Far Bank, not the glade',
+    /far bank/i.test(words.fallen) && !/glade/i.test(words.fallen), words.fallen.slice(0, 200));
+  check('and the pause sheet offers the Far Bank and delivers it',
+    words.quit === 'Back to the far bank' && /far bank/i.test(words.note) && words.where === 'bank',
+    JSON.stringify({ quit: words.quit, where: words.where }));
+  check('and a free-flight pause afterwards reads End run again',
+    words.freeQuit === 'End run' && /exactly where you left it/.test(words.freeNote),
+    JSON.stringify({ quit: words.freeQuit, note: words.freeNote }));
+  check('arriving through the Narrows, the card says where Ember was found',
+    /THE NARROWS/.test(words.arrived) && /the narrows\./i.test(words.arrived) && !/reeds/i.test(words.arrived),
+    words.arrived.slice(0, 240));
+  await context.close();
+}
+
+// --- a level pins its own sky, and gives the player's back --------------
+// enterStage wrote the level's phase into G.bg, the player's setting, and
+// nothing restored it: after any level the endless game's sky stayed frozen
+// at that phase and the shop highlighted the wrong swatch.
+{
+  const { context, page } = await fresh();
+  const sky = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    const st = d.STAGES.narrows;
+    d.G.bg = st.bg; const ref = d.phaseNow().sky0;
+    pr.bg = 'cycle'; d.G.bg = 'cycle';
+    d.resetWorld(); d.enterLand('bank'); d.enterStage(st); d.press();
+    const a = d.phaseNow().sky0;
+    for (let i = 0; i < 600; i++) d.tick();
+    const b = d.phaseNow().sky0;
+    d.leaveStage(); d.resetWorld();
+    return { pinned: a === ref && b === ref, bg: d.G.bg, saved: pr.bg };
+  });
+  check('a level pins its own sky for the whole flight', sky.pinned, JSON.stringify(sky));
+  check('and leaving it hands the player back their own sky', sky.bg === 'cycle' && sky.saved === 'cycle', JSON.stringify(sky));
+  await context.close();
+}
+
 // --- every land actually draws ------------------------------------------
 /* The suite drives the simulation and almost never renders, so a land whose
    DRAWING referenced a constant that no longer existed passed 47 checks and

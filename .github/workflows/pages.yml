@@ -20,10 +20,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # One job per suite. Run in sequence they take about fifteen minutes;
-  # in parallel the wall clock is the slowest single suite.
+  # One job per suite, so the wall clock is setup plus the slowest suite
+  # rather than the sum of them.
   test:
     runs-on: ubuntu-latest
+    # A suite takes seconds here. Run #12 sat stuck on a hung apt step in ONE
+    # job while twelve were green, with the run behind it queued on the
+    # concurrency group and nothing able to deploy. A hang now fails in
+    # minutes and can be re-run.
+    timeout-minutes: 10
     strategy:
       fail-fast: false          # one red suite should not hide the others
       matrix:

@@ -2296,14 +2296,6 @@
     void x; void y;
     const E = G.explore;
     if (!E) return;
-    const land = LANDS[E.id];
-    if (E.t < 110) {
-      ctx.save();
-      ctx.globalAlpha = clamp(E.t < 80 ? 1 : 1 - (E.t - 80) / 30, 0, 1);
-      textOut(ctx, land.name, W / 2, 150, 12, '#ffe07a', '#20160a');
-      ctx.restore();
-    }
-
     if (E.saying) { advanceTalk(); return; }
     if (nearNpc()) startTalk();
   }
@@ -2364,16 +2356,14 @@
     G.flash = 0; G.shake = 0;
     G.hazardMul = st.hazards;
     startPlay(st.seed, st.gap);
-    /* Pinned, not drifting. The day/night cycle rides G.cycle, which
-       deliberately survives between runs -- so without this the same level
-       is dusk on one attempt and midnight on the next, and "the same flight
-       every time" stops being true of the part you actually look at. */
-    G.bg = st.bg;
     G.stage.cameAt = G.ticks;
     G.flash = reduceMotion ? 0 : 0.5;
   }
 
   function stageNow() { return G.stage ? STAGES[G.stage.id] : null; }
+  // The land a level leads back to, and a land's name as a sentence says it.
+  function backOf() { const st = stageNow(); return st && LANDS[st.from] ? LANDS[st.from] : LANDS.glade; }
+  function niceName(land) { return land.name[0] + land.name.slice(1).toLowerCase(); }
 
   /* Arriving. Not "you survived longest" -- you got there. Spawning stops,
      death switches off, and he glides on for a beat before the panel, because
@@ -2707,9 +2697,17 @@
   function phaseNow() {
     const list = phaseList();
     const n = list.length;
-    // Holding a phase pins the sky; cycling drifts through the list.
-    const held = typeof G.bg === 'number' && G.bg >= 0 && G.bg < n;
-    const seg = held ? G.bg : ((G.cycle / PHASE_LEN) % n + n) % n;
+    /* Holding a phase pins the sky; cycling drifts through the list. A level
+       pins its own phase while it is flown: the cycle rides G.cycle, which
+       survives between runs, so otherwise the same level was dusk on one
+       attempt and midnight on the next. The pin is READ from the stage row
+       rather than written into G.bg, because G.bg is the player's setting --
+       writing over it left the endless game's sky frozen at the level's
+       phase afterwards, and the shop highlighting the wrong swatch. */
+    const st = G.mode === 'stage' ? stageNow() : null;
+    const bg = st ? st.bg : G.bg;
+    const held = typeof bg === 'number' && bg >= 0 && bg < n;
+    const seg = held ? bg : ((G.cycle / PHASE_LEN) % n + n) % n;
     const i = Math.floor(seg);
     const t = (held || n === 1) ? 0 : smooth(clamp((seg - i - 0.55) / 0.45, 0, 1));
     const a = list[i], b = list[(i + 1) % n];
@@ -3154,6 +3152,18 @@
     } else if (!E.opened && land.npc) {
       textOut(ctx, 'HOLD TO FLY', W / 2, 62, 6, 'rgba(255,255,255,.7)', '#20160a');
     }
+
+    /* The land names itself on arrival, as a level does. This block used to
+       live in the TAP handler, where it drew for a single frame at identity
+       transform if he happened to tap within two seconds of arriving -- so
+       no land ever showed its name. Drawn last, over everything, and never
+       over speech. */
+    if (E.t < 110 && !E.saying) {
+      ctx.save();
+      ctx.globalAlpha = clamp(E.t < 80 ? 1 : 1 - (E.t - 80) / 30, 0, 1);
+      textOut(ctx, land.name, W / 2, 150, 12, '#ffe07a', '#20160a');
+      ctx.restore();
+    }
   }
 
   /* Arriving somewhere, which this game has never been able to say before.
@@ -3181,12 +3191,12 @@
       textOut(ctx, found.name.toUpperCase() + ' IS WITH YOU', W / 2, 232, 8,
         '#cdefff', '#20160a');
       for (const [k, ln] of wrapLines(ctx,
-        'One of the flock, found in the reeds. You can fly as ' +
+        'One of the flock, found in ' + st.name.toLowerCase() + '. You can fly as ' +
         found.name + ' from now on.', W - 60, 6).entries()) {
         textOut(ctx, ln, W / 2, 252 + k * 13, 6, '#f2ead8', '#20160a');
       }
     } else {
-      textOut(ctx, 'THE REEDS ARE BEHIND YOU', W / 2, 210, 7, '#cdefff', '#20160a');
+      textOut(ctx, 'BEHIND YOU NOW: ' + st.name, W / 2, 210, 7, '#cdefff', '#20160a');
     }
     const on = Math.floor(G.ticks / 20) % 2 === 0;
     textOut(ctx, 'TAP TO GO ON', W / 2, 292, on ? 8 : 7, '#ffffff', '#20160a');
@@ -3210,7 +3220,7 @@
     textOut(ctx, S.reached + ' OF ' + S.target + ' PIPES', W / 2, 186, 8,
       '#ffe07a', '#20160a');
     for (const [k, ln] of wrapLines(ctx,
-      'Nothing is lost. The glade is still open behind you.',
+      'Nothing is lost. ' + niceName(backOf()) + ' is still open behind you.',
       W - 60, 6).entries()) {
       textOut(ctx, ln, W / 2, 210 + k * 13, 6, 'rgba(255,255,255,.75)', '#20160a');
     }
@@ -4139,11 +4149,17 @@
   const btnPause = document.getElementById('btn-pause');
 
   function pauseRun() {
-    if (G.mode === 'stage') {
-      document.getElementById('paused-quit').textContent = 'Back to the glade';
-      document.getElementById('paused-note').textContent =
-        'The level is waiting where you left it. The glade is still open behind you.';
-    }
+    /* Both branches, every time. The stage wording used to be written once
+       and never undone, so after any level every free-flight pause for the
+       rest of the session offered "Back to the glade" -- and threw the run
+       away when taken. And it said "the glade" whichever land the level
+       actually led back to. */
+    const inStage = G.mode === 'stage';
+    const back = inStage ? niceName(backOf()) : null;
+    document.getElementById('paused-quit').textContent = inStage ? 'Back to ' + back.toLowerCase() : 'End run';
+    document.getElementById('paused-note').textContent = inStage
+      ? 'The level is waiting where you left it. ' + back + ' is still open behind you.'
+      : 'Your run is waiting exactly where you left it.';
     if (G.state !== PLAYING || G.paused) return;
     G.paused = true;
     pausedSheet.hidden = false;
