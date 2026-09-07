@@ -88,6 +88,9 @@ async function fresh(opts) {
       d.frame(performance.now() + 1);
       return Array.from(g.getImageData(0, Math.round(336 * scale), cv.width, 1).data).join(',');
     };
+    // The story line comes first on this title screen, and the flap lesson
+    // takes its turn once the glade has been seen -- so see it.
+    if (d.active().story.flags.indexOf('seen:glade') < 0) d.active().story.flags.push('seen:glade');
     d.active().taught = false; d.resetWorld();
     const withHint = band();
     d.active().taught = true; d.resetWorld();
