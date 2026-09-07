@@ -49,18 +49,19 @@ for (const blockFont of [false, true]) {
        So: scale the width down by however much narrower the loaded font is,
        wrap against that, and the result is what the pixel font would do. On a
        machine that does have the font the scale is 1 and nothing changes. */
-    g.font = '6px "Press Start 2P", ui-monospace, monospace';
-    const scale = g.measureText('M').width / 6;      // 1.0 with the real font
+    const SIZE = 7;                                   // what the speech box paints at
+    g.font = SIZE + 'px "Press Start 2P", ui-monospace, monospace';
+    const scale = g.measureText('M').width / SIZE;   // 1.0 with the real font
     const asPixelFont = max * Math.min(1, scale);
 
     const over = [];
     let longest = 0, count = 0;
-    for (const speech of Object.values(d.NPCS.thistle).filter(Array.isArray)) {
+    for (const npc of Object.values(d.NPCS)) for (const speech of Object.values(npc).filter(Array.isArray)) {
       for (const line of speech) {
-        for (const w of d.wrapLines(g, line, asPixelFont, 6)) {
+        for (const w of d.wrapLines(g, line, asPixelFont, SIZE)) {
           // Press Start 2P advances one em a glyph, so this is the width the
           // line would actually paint at, whatever is loaded right now.
-          const width = w.length * 6;
+          const width = w.length * SIZE;
           longest = Math.max(longest, width);
           count++;
           if (width > max) over.push(w);
@@ -70,7 +71,7 @@ for (const blockFont of [false, true]) {
     return { over, longest, max: Math.round(max), count, scale: +scale.toFixed(2) };
   });
   const how = blockFont ? 'on the fallback typeface' : 'with the pixel font';
-  check('no line of Thistle\'s runs past its box ' + how,
+  check('no line of anyone\'s runs past its box ' + how,
     fit.over.length === 0 && fit.count > 0,
     fit.over.length ? 'over: ' + JSON.stringify(fit.over)
                     : fit.count + ' lines, widest ' + fit.longest + ' of ' + fit.max +
@@ -1048,6 +1049,59 @@ for (const blockFont of [false, true]) {
     /1 OF 12 ARE HOME/.test(kiln.one) && /3 OF 12 ARE HOME/.test(kiln.three) && !/WORLD ENDS HERE/.test(kiln.three),
     JSON.stringify({ one: kiln.one.slice(0, 120), three: kiln.three.slice(0, 120) }));
   check('and draws the birds that are home, in pixels', kiln.diff > 100, String(kiln.diff));
+  await context.close();
+}
+
+// --- the thumb is taught, the tap answers, and the text can be read -------
+{
+  const { context, page } = await fresh();
+  const r = await page.evaluate(() => {
+    const d = __dreybird, pr = d.active();
+    const drawn = () => {
+      const out = [], orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (s, x, y) { out.push({ t: String(s), y, font: this.font }); return orig.apply(this, arguments); };
+      d.frame(performance.now() + 100);
+      CanvasRenderingContext2D.prototype.fillText = orig;
+      return out;
+    };
+    const has = (list, re) => list.some(e => re.test(e.t));
+    pr.story.flags = pr.story.flags.filter(f => f !== 'seen:hold');
+    d.resetWorld(); d.enterLand('glade');
+    const arriving = drawn();
+    // Standing beside Thistle: the lesson must survive the talk prompt.
+    const n = d.NPCS.thistle; const spot = d.LANDS.glade.npc;
+    d.bird.x = spot.x; d.bird.y = spot.y - 20;
+    const beside = drawn();
+    // A second and a half of holding, and it is learned for good.
+    d.holdAt(200, 120); for (let i = 0; i < 100; i++) d.tick(); d.letGo();
+    const after = drawn();
+    d.resetWorld(); d.enterLand('bank');
+    const elsewhere = drawn();
+    // A tap in open air answers.
+    d.bird.x = 200; d.bird.y = 120; d.bird.wing = 0;
+    d.tapLand(200, 120);
+    const wing = d.bird.wing;
+    // The HUD sits below the button row (which ends near y 38).
+    const hud = elsewhere.find(e => /RINGS/.test(e.t));
+    // Speech paints at 7px, its prompt at 6.
+    d.resetWorld(); d.enterLand('glade');
+    d.bird.x = spot.x; d.bird.y = spot.y - 20; d.tapLand(0, 0);
+    const talking = drawn();
+    const speech = talking.filter(e => /roots/.test(e.t))[0];
+    const prompt = talking.find(e => /TAP TO GO ON|TAP TO CLOSE/.test(e.t));
+    return { arriving: has(arriving, /HOLD TO FLY/), beside: has(beside, /HOLD TO FLY/) && has(beside, /TAP TO TALK/),
+             after: has(after, /HOLD TO FLY/), flag: pr.story.flags.indexOf('seen:hold') >= 0,
+             elsewhere: has(elsewhere, /HOLD TO FLY/), wing, hudY: hud ? hud.y : null,
+             speechFont: speech ? speech.font : null, promptFont: prompt ? prompt.font : null };
+  });
+  check('HOLD TO FLY shows on arrival and survives standing beside Thistle',
+    r.arriving && r.beside, JSON.stringify({ arriving: r.arriving, beside: r.beside }));
+  check('and a second and a half of holding retires it, everywhere, for good',
+    !r.after && r.flag && !r.elsewhere, JSON.stringify({ after: r.after, flag: r.flag, elsewhere: r.elsewhere }));
+  check('a tap in open air flicks the wing', r.wing === 9, String(r.wing));
+  check('the land HUD sits below the button row', r.hudY != null && r.hudY >= 56, String(r.hudY));
+  check('speech paints at 7px and its prompt at 6px',
+    /^7px/.test(r.speechFont || '') && /^6px/.test(r.promptFont || ''), JSON.stringify({ speech: r.speechFont, prompt: r.promptFont }));
   await context.close();
 }
 

@@ -1424,11 +1424,10 @@
       name: 'Thistle',
       first: ['A mouse looks up from the roots.',
               'Wind took my whole seed store into the reeds.',
-              'Three of them landed hereabouts. Fetch them and',
-              'I will pull these brambles apart for you.'],
+              'Three of them landed hereabouts. Fetch them and I will pull these brambles apart for you.'],
       again: ['Three seeds. They caught in the air, so look up.'],
       thanks: ['He turns them over, satisfied.',
-               'That is the lot. Mind the reeds - it is close flying.',
+               'That is the lot. Mind the reeds. It is close flying.',
                'The brambles part with a dry crack.'],
       after:  ['Straight on east, and good luck to you.']
     },
@@ -1436,11 +1435,9 @@
       name: 'Stilt',
       first: ['A heron watches you land, unhurried.',
               'The narrows past here are close work.',
-              'I have set three rings. Fly them in order,',
-              'lowest first, and I will believe you can.'],
+              'I have set three rings. Fly them in order, lowest first, and I will believe you can.'],
       again: ['In order. Lowest first, then across, then high.'],
-      thanks: ['The heron dips its head, which is as close to',
-               'approval as a heron gets.',
+      thanks: ['The heron dips its head, which is as close to approval as a heron gets.',
                'Go on then. The narrows will not wait.'],
       after:  ['East, and mind the middle stretch.']
     }
@@ -2219,6 +2216,14 @@
         bird.vy += (dy / d) * STEER_A * ease;
       }
       if (bird.wing === 0 && G.ticks % 9 === 0) bird.wing = 9;
+      /* A second and a half of holding is the whole steering lesson. The
+         hint used to be an else-if behind TAP TO TALK, so in the glade it
+         vanished within a second of arriving -- before a Flappy-trained
+         thumb had tried holding at all. */
+      if (++E.held >= 90 && profile && profile.story.flags.indexOf('seen:hold') < 0) {
+        profile.story.flags.push('seen:hold');
+        saveProfile();
+      }
     }
 
     bird.vx *= GLIDE_DRAG;
@@ -2310,7 +2315,10 @@
     const E = G.explore;
     if (!E) return;
     if (E.saying) { advanceTalk(); return; }
-    if (nearNpc()) startTalk();
+    if (nearNpc()) { startTalk(); return; }
+    // A Flappy-trained tap in open air used to get nothing back at all.
+    bird.wing = 9;
+    audio.pop();
   }
 
   function startTalk() {
@@ -2447,7 +2455,7 @@
                     ? kept.got.slice() : new Array(want).fill(false),
                   talked: kept ? kept.talked : 0,
                   opened: kept ? kept.opened : false,
-                  saying: null, line: 0, missed: -999 };
+                  saying: null, line: 0, missed: -999, held: 0 };
     G.state = PLAYING;
     bird.x = 70; bird.px = 70;
     bird.y = 240; bird.py = 240;
@@ -3163,18 +3171,26 @@
 
     if (pk) {
       const have = E.got.filter(Boolean).length;
+      // Below the 44px button row, which ends at about y 38 in these units;
+      // at 40 the label sat on the buttons' bottom edge.
       textOut(ctx, (pk.kind === 'ring' ? 'RINGS  ' : 'SEEDS  ') + have + ' / ' + pk.at.length,
-        W / 2, 40, 8, '#ffe07a', '#20160a');
+        W / 2, 62, 8, '#ffe07a', '#20160a');
       if (pk.ordered && G.ticks - E.missed < 50) {
-        textOut(ctx, 'IN ORDER', W / 2, 58, 7, '#ffb4a2', '#20160a');
+        textOut(ctx, 'IN ORDER', W / 2, 78, 7, '#ffb4a2', '#20160a');
       }
+    }
+
+    // Its own line, not an else-if behind TAP TO TALK: standing beside
+    // Thistle must not hide the one steering lesson there is.
+    if (!E.saying && profile && profile.story.flags.indexOf('seen:hold') < 0) {
+      textOut(ctx, 'HOLD TO FLY', W / 2, 94, 7, 'rgba(255,255,255,.85)', '#20160a');
     }
 
     if (E.saying) {
       const lines = E.saying, i = Math.min(E.line, lines.length - 1);
       const pad = 14, inner = W - pad * 2 - 16;
-      const wrapped = wrapLines(ctx, lines[i], inner, 6);
-      const top = 228, lh = 14;
+      const wrapped = wrapLines(ctx, lines[i], inner, 7);
+      const top = 228, lh = 16;
       const h = 26 + wrapped.length * lh + 16;
       ctx.save();
       ctx.fillStyle = 'rgba(14,18,10,.86)';
@@ -3183,15 +3199,13 @@
       ctx.strokeRect(pad + 0.5, top + 0.5, W - pad * 2 - 1, h - 1);
       ctx.restore();
       wrapped.forEach((ln, k) => {
-        textOut(ctx, ln, W / 2, top + 20 + k * lh, 6, '#f2ead8', '#20160a');
+        textOut(ctx, ln, W / 2, top + 20 + k * lh, 7, '#f2ead8', '#20160a');
       });
       textOut(ctx, i + 1 < lines.length ? 'TAP TO GO ON' : 'TAP TO CLOSE',
-        W / 2, top + h - 12, 5, 'rgba(255,255,255,.6)', '#20160a');
+        W / 2, top + h - 12, 6, 'rgba(255,255,255,.6)', '#20160a');
     } else if (nearNpc()) {
       const np = npcOf(E.id).spot;
-      textOut(ctx, 'TAP TO TALK', np.x, np.y - 34, 6, '#ffffff', '#20160a');
-    } else if (!E.opened && land.npc) {
-      textOut(ctx, 'HOLD TO FLY', W / 2, 62, 6, 'rgba(255,255,255,.7)', '#20160a');
+      textOut(ctx, 'TAP TO TALK', np.x, np.y - 34, 7, '#ffffff', '#20160a');
     }
 
     /* The land names itself on arrival, as a level does. This block used to
@@ -3270,7 +3284,7 @@
     // and this one is the way out.
     const beat = Math.floor(G.ticks / 20) % 2 === 0;
     textOut(ctx, 'TAP TO TRY AGAIN', W / 2, 250, beat ? 9 : 8, '#ffffff', '#20160a');
-    textOut(ctx, 'OR THE MAP BUTTON TO GO BACK', W / 2, 268, 5,
+    textOut(ctx, 'OR THE MAP BUTTON TO GO BACK', W / 2, 268, 6,
       'rgba(255,255,255,.55)', '#20160a');
   }
 

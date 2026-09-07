@@ -21,7 +21,9 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
 - `aa84e4c` M1 door beat and stage gap: a level waits for the first tap and every pipe in it is the level's width. CI run #12.
 - `6bf9893` M1 rescue real: a rescued bird can be flown at a best of 0, the map counts what the shop lets you fly, and a flock of strangers reveals nothing. CI run #13.
 - `8967c7c` M1 names and sky: a land names itself on arrival, the level's copy names the right places, and a level reads its sky pin instead of overwriting the player's setting. A ten-minute timeout on CI test jobs. CI run #14.
-- M1 a way in and a way out: the title says where the story is and the map button beckons until the glade is seen, a cleared level retires the flap lesson, the map names only passages he has heard of and says which rows can be tapped, and the Kiln ends on a card that counts the flock. This commit.
+- `d25c6d5` M1 a way in and a way out: the title says where the story is and the map button beckons until the glade is seen, a cleared level retires the flap lesson, the map names only passages he has heard of and says which rows can be tapped, and the Kiln ends on a card that counts the flock. CI run #15.
+- `9a7688c` the polish suite's flap-lesson check sees the glade first; run #15 was red because the story line now takes that slot on a fresh profile. Lesson: run the quick suites that touch a changed screen before a push, not only world.mjs. Run #16 green.
+- M1 teach the thumb and size the text: HOLD TO FLY is its own line and retires after a second and a half of holding, a tap in open air flicks the wing and pops, the land HUD sits below the buttons, speech paints at 7 px with prompts at 6, and the dialogue is paged as sentences. This commit.
 
 ## 3. How we decide
 
