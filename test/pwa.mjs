@@ -83,6 +83,44 @@ check('service worker activates and controls the page',
   await page.waitForFunction(() => !!window.__dreybird);
 }
 
+// --- the other game on this origin keeps its offline copy ---------------
+/* caches.keys() is scoped to the origin, not to a worker's scope, and both
+   games are served from dreymar87.github.io. A worker that deletes every
+   cache that is not its own takes the other game's shell with it, and the
+   other game's worker returns the favour -- so whichever you opened last
+   left the other one unable to start offline. Nothing asserted cache names
+   before this, in either direction. */
+{
+  await page.evaluate(async () => {
+    const foreign = await caches.open('dreybird-v16');
+    await foreign.put('/borrowed', new Response("the classic game's shell"));
+    const stale = await caches.open('dbw-v0');
+    await stale.put('/old', new Response('a previous build of this game'));
+  });
+
+  // The deletion only runs on activate, so ship a byte-different worker.
+  const swText = await readFile(join(ROOT, 'sw.js'), 'utf8');
+  OVERRIDE.set('/sw.js', Buffer.from(swText + '\n// a nudge, so this counts as a new worker\n'));
+  const names = await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.getRegistration();
+    await reg.update();
+    // Either way the stale own cache goes, so its disappearance is the
+    // signal that the new worker finished activating.
+    for (let i = 0; i < 100; i++) {
+      if ((await caches.keys()).indexOf('dbw-v0') < 0) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    return await caches.keys();
+  });
+  OVERRIDE.delete('/sw.js');
+
+  check('activating leaves the classic game\'s offline copy alone',
+    names.indexOf('dreybird-v16') >= 0, JSON.stringify(names));
+  check('and still drops a stale cache of its own',
+    names.indexOf('dbw-v0') < 0, JSON.stringify(names));
+  await page.evaluate(() => caches.delete('dreybird-v16'));
+}
+
 // --- manifest ---------------------------------------------------------
 const manifestHref = await page.getAttribute('link[rel="manifest"]', 'href');
 check('manifest link is injected at runtime', manifestHref === 'manifest.webmanifest', String(manifestHref));

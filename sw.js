@@ -3,6 +3,11 @@
 
 const CACHE = 'dbw-v7';   // bumped when the app shell changes
 const RUNTIME = 'dbw-runtime-v1';
+/* Everything this game owns starts here, and nothing it does not own does.
+   Deliberately the literal 'dbw-' and never anything derived from the game's
+   name: 'dreybird' as a prefix would still match the classic game's caches,
+   which is the exact bug this exists to stop. */
+const PREFIX = 'dbw-';
 
 const SHELL = [
   './',
@@ -27,8 +32,14 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys()
+      /* Own prefix only. caches.keys() is scoped to the ORIGIN, not to this
+         worker's scope, and the classic game is served from the same one --
+         so "delete everything that is not mine" deleted ITS shell and font
+         caches on every activation here, while its worker did the same back.
+         Whichever game you opened last left the other with nothing offline. */
       .then(names => Promise.all(
-        names.filter(n => n !== CACHE && n !== RUNTIME).map(n => caches.delete(n))
+        names.filter(n => n.startsWith(PREFIX) && n !== CACHE && n !== RUNTIME)
+             .map(n => caches.delete(n))
       ))
       .then(() => self.clients.claim())
   );

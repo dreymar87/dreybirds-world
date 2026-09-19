@@ -31,6 +31,10 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   regenerated with the Kiln's warm sky and Bluebird alongside DreyBird. The classic game and
   this one were one app to a browser until now. This commit.
 
+- M2 push 2, stop deleting the other game's offline copy: the worker's activate filter keeps to
+  its own cache prefix. Both games share an origin and cache keys are origin-scoped, so each
+  was wiping the other's shell on every activation. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**
