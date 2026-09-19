@@ -2090,7 +2090,11 @@
     syncStage();
   }
 
-  function land() {
+  /* Hitting the ground. Named land() until the world had lands in it, at
+     which point the game had two functions by that name meaning opposite
+     things -- one a crash, one the place you are standing -- and the test
+     harness exported the other one. */
+  function hitGround() {
     /* A stage is not a run to be scored: it is a level to be beaten. Dying in
        one costs the attempt and nothing else -- the glade behind it, the coins
        and the XP are all exactly as they were. */
@@ -2724,7 +2728,7 @@
       bird.vy = clamp(bird.vy + G.gravity * 1.1, -20, G.maxVy);
       bird.y += bird.vy;
       bird.rot = Math.min(bird.rot + 0.11, 1.62);
-      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; land(); }
+      if (bird.y + G.hitH / 2 >= GY) { bird.y = GY - G.hitH / 2; hitGround(); }
     }
 
     // Trail: cosmetic particles behind the bird. Emission thins out under
