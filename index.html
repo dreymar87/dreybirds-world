@@ -1426,7 +1426,7 @@
              npc: { who: 'thistle', x: 70, y: 368, r: 40 },
              pickups: { kind: 'seed', ordered: false,
                         at: [{ x: 206, y: 132 }, { x: 108, y: 96 }, { x: 244, y: 292 }] },
-             gate: true,
+             gate: { opens: 'thanks' },
              phase: { sky0: '#8fd3f4', sky1: '#dff6e3', cloud: '#ffffff',
                       city: '#7fae7a', dirt: '#8a6a3f', grass: '#5fa855',
                       sun: '#fff3c8', star: 0 } },
@@ -1437,12 +1437,14 @@
              // one that teaches the steering the player has just been given.
              pickups: { kind: 'ring', ordered: true,
                         at: [{ x: 150, y: 300 }, { x: 232, y: 170 }, { x: 116, y: 110 }] },
-             gate: true, roost: 'sky',
+             gate: { opens: 'thanks' },
+             perches: [{ who: 'sky', x: 214, y: 356 }],
              phase: { sky0: '#f6c48a', sky1: '#ffe9c9', cloud: '#fff2df',
                       city: '#b08a63', dirt: '#7b5c3a', grass: '#8fa457',
                       sun: '#fff0bd', star: 0 } },
 
-    kiln:  { id: 'kiln', name: 'THE KILN', ends: true, roost: 'ember', west: 'bank',
+    kiln:  { id: 'kiln', name: 'THE KILN', ends: true, west: 'bank',
+             perches: [{ who: 'ember', x: 214, y: 356 }],
              phase: { sky0: '#d9704a', sky1: '#ffc98a', cloud: '#f6b48c',
                       city: '#7a3f34', dirt: '#4e2c22', grass: '#a35a36',
                       sun: '#ffe3a8', star: 0.2 } }
@@ -1473,6 +1475,29 @@
   };
 
   const GATE_X = W - 26;                      // where a land's east door sits
+
+  /* What an errand is made of. A land's pickups row names a kind; everything
+     that differs between kinds is here rather than branched on in three
+     separate functions -- the sprite, the word on the counter, and the colour
+     it bursts into when taken. A new kind of thing to find is a row. */
+  const PICKUPS = {
+    seed: { label: 'SEEDS', puff: '#ffe07a', draw: (sd, next, t) => drawSeed(sd, t) },
+    ring: { label: 'RINGS', puff: '#cdefff', draw: drawRing }
+  };
+
+  /* What opens a land's east door. Until now a door only ever came apart at
+     the end of an errand-giver's thanks, so a land with nobody to talk to
+     could not have one at all -- which is why the world stops at the Kiln.
+     A land says what opens its door instead:
+       thanks  the end of the errand-giver's thanks speech
+       errand  the moment the last thing is found, with nobody to tell
+       always  a plain doorway, open on arrival
+     `gate: true` is read as thanks, so a row written the old way still
+     means what it meant. */
+  const opensOn = land => {
+    if (!land || !land.gate) return null;
+    return land.gate === true ? 'thanks' : (land.gate.opens || 'thanks');
+  };
   const SEED_R = 9;
 
   /* A pipe-land is a table row and nothing else, because world generation is
@@ -2321,7 +2346,8 @@
         E.got[i] = true;
         keepLand();
         audio.score();
-        puff(sd.x, sd.y, pk.kind === 'ring' ? '#cdefff' : '#ffe07a', 8);
+        puff(sd.x, sd.y, PICKUPS[pk.kind].puff, 8);
+        if (opensOn(LANDS[E.id]) === 'errand' && gotAll(E) && !E.opened) openWay(E);
       }
     });
 
@@ -2337,6 +2363,14 @@
       got: G.explore.got.slice(), talked: G.explore.talked, opened: G.explore.opened
     };
     saveProfile();
+  }
+
+  // One way for a door to come apart, whatever asked for it.
+  function openWay(E) {
+    E.opened = true;
+    keepLand();
+    G.flash = reduceMotion ? 0 : 0.6;
+    audio.power();
   }
 
   const gotAll = E => {
@@ -2386,11 +2420,8 @@
     if (E.line < E.saying.length) return;
     // The end of the thanks speech is the moment the brambles come apart.
     const n = npcOf(E.id);
-    if (n && E.saying === n.lines.thanks && !E.opened) {
-      E.opened = true;
-      keepLand();
-      G.flash = reduceMotion ? 0 : 0.6;
-      audio.power();
+    if (n && E.saying === n.lines.thanks && !E.opened && opensOn(LANDS[E.id]) === 'thanks') {
+      openWay(E);
     }
     E.saying = null;
   }
@@ -2512,7 +2543,9 @@
     G.explore = { id: id, t: 0,
                   got: keep,
                   talked: kept ? kept.talked : 0,
-                  opened: kept ? kept.opened : false,
+                  // A plain doorway is open when he gets there; anything else
+                  // is open only if it was opened.
+                  opened: opensOn(LANDS[id]) === 'always' || (kept ? kept.opened : false),
                   saying: null, line: 0, missed: -999, held: 0 };
     G.state = PLAYING;
     bird.x = 70; bird.px = 70;
@@ -3163,13 +3196,17 @@
     ctx.restore();
   }
 
-  // A perched flockmate, wherever a land keeps one.
-  function drawRoosting(id) {
-    const who = SKINS.find(b => b.id === id);
-    if (!who || !home(who)) return;
+  /* Perched flockmates, wherever a land keeps them. A list with positions,
+     not one bird at a fixed spot: a land that finds two birds had nowhere to
+     put the second, and every land put its bird in the same place. */
+  function drawRoosting(perches) {
     const bob = reduceMotion ? 0 : Math.sin(G.ticks / 40) * 2;
-    drawBird(ctx, 214, 356 + bob, 0, who, 0, 1);
-    textOut(ctx, who.name.toUpperCase(), 214, 330, 6, '#cdefff', '#20160a');
+    for (const perch of perches) {
+      const who = SKINS.find(b => b.id === perch.who);
+      if (!who || !home(who)) continue;
+      drawBird(ctx, perch.x, perch.y + bob, 0, who, 0, 1);
+      textOut(ctx, who.name.toUpperCase(), perch.x, perch.y - 26, 6, '#cdefff', '#20160a');
+    }
   }
 
   function drawWorldEdge(land) {
@@ -3217,15 +3254,14 @@
 
     if (land.gate) drawBrambles(E.opened);
     if (land.ends) drawWorldEdge(land);
-    if (land.roost) drawRoosting(land.roost);
+    if (land.perches) drawRoosting(land.perches);
 
     const pk = land.pickups;
     if (pk) {
       const nextIdx = E.got.indexOf(false);
       pk.at.forEach((sd, i) => {
         if (E.got[i]) return;
-        if (pk.kind === 'ring') drawRing(sd, pk.ordered && i === nextIdx, G.ticks);
-        else drawSeed(sd, G.ticks);
+        PICKUPS[pk.kind].draw(sd, pk.ordered && i === nextIdx, G.ticks);
       });
     }
 
@@ -3239,7 +3275,7 @@
       const have = E.got.filter(Boolean).length;
       // Below the 44px button row, which ends at about y 38 in these units;
       // at 40 the label sat on the buttons' bottom edge.
-      textOut(ctx, (pk.kind === 'ring' ? 'RINGS  ' : 'SEEDS  ') + have + ' / ' + pk.at.length,
+      textOut(ctx, PICKUPS[pk.kind].label + '  ' + have + ' / ' + pk.at.length,
         W / 2, 62, 8, '#ffe07a', '#20160a');
       if (pk.ordered && G.ticks - E.missed < 50) {
         textOut(ctx, 'IN ORDER', W / 2, 78, 7, '#ffb4a2', '#20160a');
@@ -4361,16 +4397,38 @@
   const mapBody = document.getElementById('map-body');
   let mapHeldLevel = false;     // a level paused behind the map, to be resumed by Back
 
-  const CHAIN = ['glade', 'reeds', 'bank', 'narrows', 'kiln'];
+  /* The map's running order, walked from the one land with nothing to its
+     west. It used to be a fourth hand-written copy of a graph already
+     written into every land's east and west and every passage's from and
+     to, and nothing made the four agree. */
+  /* Walked, not kept. Computed when it is asked for rather than once at
+     load, so a land added to the tables is on the map without anything else
+     being told about it -- which is the whole test of whether a land really
+     is just rows. */
+  function chain() {
+    const out = [];
+    let at = Object.keys(LANDS).find(id => !LANDS[id].west);
+    for (let guard = 0; at && guard < 100; guard++) {
+      out.push(at);
+      const east = LANDS[at].east;
+      if (!east || !STAGES[east]) break;
+      out.push(east);
+      at = STAGES[east].to;
+    }
+    return out;
+  }
+  // Where the story starts: the one land with nothing to its west.
+  const startLand = () => chain()[0];
 
   function visited(id) {
-    if (!profile) return id === 'glade';
+    const order = chain(), start = order[0];
+    if (!profile) return id === start;
     // Reached is reached: been there, be there, or be past it. A bird in the
-    // flock is not evidence -- a hand-edited save could name a land's roost
+    // flock is not evidence -- a hand-edited save could name a land's perch
     // and open the map's door to a place never flown to.
-    return id === 'glade' || id === profile.story.at ||
+    return id === start || id === profile.story.at ||
            !!profile.story.lands[id] ||
-           CHAIN.indexOf(id) < CHAIN.indexOf(profile.story.at);
+           order.indexOf(id) < order.indexOf(profile.story.at);
   }
 
   function buildMap() {
@@ -4379,7 +4437,7 @@
     const here = G.mode === 'explore' ? G.explore.id
                : G.mode === 'stage' ? stageNow().from : profile.story.at;
 
-    for (const id of CHAIN) {
+    for (const id of chain()) {
       if (STAGES[id]) {
         const st = STAGES[id];
         const done = profile.story.flags.indexOf('cleared:' + id) >= 0;
@@ -5184,7 +5242,7 @@
                         assist: G.runAssist }),
       paused: () => G.paused,
       openSettings, closeSettings, openStats, closeStats, buildStats,
-      openMap, closeMap, buildMap, travel, CHAIN,
+      openMap, closeMap, buildMap, travel, chain, startLand,
       seed: () => G.seed,
       trailParticles: () => trail,
       PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
@@ -5194,7 +5252,7 @@
       land: () => G.explore,
       // Drives the thumb without a real pointer, for the checks that measure
       // what steering actually does to velocity.
-      LANDS, NPCS, STAGES, wrapLines, GATE_X,
+      LANDS, NPCS, STAGES, PICKUPS, wrapLines, GATE_X, opensOn,
       enterStage, leaveStage,
       stage: () => G.stage,
       speechWidth: () => W - 28 - 16,

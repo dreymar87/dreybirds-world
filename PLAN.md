@@ -78,6 +78,23 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   and what was found, who was spoken to, which door is open and who is being flown all come
   back. Ten mutants, all caught. 365 checks. This commit.
 
+- M3 push 4a, four of the five seams. A PICKUPS table replaces three separate branches on the
+  same kind string -- the sprite, the word on the counter, the colour it bursts into. Perches
+  are a list with positions, so a land can hold two birds and need not put them where every
+  other land does. A gate names what opens it -- a thanks, an errand, or nothing at all -- so a
+  land with nobody to talk to can still have a door, which is what made the Kiln the end of the
+  world. And the running order is walked from the tables when it is asked for, not kept by hand
+  in a fourth copy; `visited` stopped naming the Glade with it. The gate for all of it is a
+  check that builds a land at runtime out of rows alone -- a kind of thing to find that did not
+  exist a second ago, a door with nobody to open it, two perched birds -- and plays it. Six
+  mutants, and the three that first came back green were three real gaps: nothing proved a
+  thanks-door stays shut on a finished errand, nothing read the game's own running order, and
+  nothing compared one pickup sprite with another. A fourth problem surfaced while fixing them:
+  every pixel probe was painting with `frame(performance.now())`, which runs however many ticks
+  have really elapsed, so captures differed in every bobbing sprite and one probe passed one run
+  in three regardless of what it was looking for. They paint on a stopped clock now. 375 checks.
+  This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

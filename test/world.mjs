@@ -69,13 +69,24 @@ async function fresh(blockFont) {
         if (!back) bad.push(id + ': west leads to no such land (' + land.west + ')');
         else if (!back.east || S[back.east].to !== id) bad.push(id + ': the way back is not the way there');
       }
-      /* A gate opens at the end of an NPC's thanks and nowhere else. A land
-         with a door and nobody to open it is a dead end that does not look
-         like one -- the seam that makes the Kiln the end of the world. */
-      if (land.gate && !land.npc) bad.push(id + ': has a door and nobody who can open it');
+      /* A door that nothing in the land can open is a dead end that does
+         not look like one. Which door is which is the land's own answer, so
+         a new way of opening one is checked here the day it is added. */
+      const opens = d.opensOn(land);
+      if (land.gate && !opens) bad.push(id + ': has a door that nothing opens');
+      if (opens === 'thanks' && !land.npc) bad.push(id + ': its door waits on a thanks nobody gives');
+      if (opens === 'errand' && !land.pickups) bad.push(id + ': its door waits on an errand it does not set');
+      if (opens && ['thanks', 'errand', 'always'].indexOf(opens) < 0) bad.push(id + ': opens on ' + opens + ', which is nothing');
+
       if (land.npc && !d.NPCS[land.npc.who]) bad.push(id + ': nobody called ' + land.npc.who);
-      if (land.roost && !d.SKINS.some(b => b.id === land.roost)) bad.push(id + ': no bird called ' + land.roost);
-      if (land.pickups && !land.pickups.at.length) bad.push(id + ': an errand with nothing to find');
+      for (const perch of (land.perches || [])) {
+        if (!d.SKINS.some(b => b.id === perch.who)) bad.push(id + ': no bird called ' + perch.who);
+        if (!(perch.x > 0) || !(perch.y > 0)) bad.push(id + ': a perch with nowhere to sit');
+      }
+      if (land.pickups) {
+        if (!land.pickups.at.length) bad.push(id + ': an errand with nothing to find');
+        if (!d.PICKUPS[land.pickups.kind]) bad.push(id + ': nothing is known about a ' + land.pickups.kind);
+      }
       for (const k of ['sky0', 'sky1', 'grass', 'dirt']) {
         if (!land.phase || !land.phase[k]) bad.push(id + ': its sky has no ' + k);
       }
@@ -94,7 +105,7 @@ async function fresh(blockFont) {
     const starts = ids.filter(id => !L[id].west);
     const ends = ids.filter(id => L[id].ends);
 
-    // Walk it, and see whether the hand-kept CHAIN says the same thing.
+    // Walk it here, and require the game's own running order to agree.
     const walk = [];
     let at = starts[0], guard = 0;
     while (at && guard++ < 50) {
@@ -109,7 +120,7 @@ async function fresh(blockFont) {
     const orphans = ids.filter(id => !reached.has(id))
       .concat(stages.filter(id => !reached.has(id)));
 
-    return { bad, starts, ends, walk, chain: d.CHAIN, orphans,
+    return { bad, starts, ends, walk, chain: d.chain(), start: d.startLand(), orphans,
              lands: ids.length, stages: stages.length };
   });
 
@@ -123,11 +134,272 @@ async function fresh(blockFont) {
     JSON.stringify({ starts: graph.starts, ends: graph.ends }));
   check('nothing is written down that cannot be walked to',
     graph.orphans.length === 0, graph.orphans.join(', '));
-  /* CHAIN is a fourth hand-kept copy of this graph. Until it is derived,
-     this is the check that catches the copy going stale. */
   check('and the map’s running order matches the world it describes',
-    graph.chain.join('>') === graph.walk.join('>'),
+    graph.chain.join('>') === graph.walk.join('>') && graph.start === graph.starts[0],
     graph.chain.join('>') + '  vs  ' + graph.walk.join('>'));
+  await context.close();
+}
+
+// --- each errand is called by its own name -------------------------------
+/* The counter said RINGS or SEEDS from a branch on the kind string, in the
+   same breath as two other branches elsewhere on the same string. A land
+   that asks for something else has to say so. */
+{
+  const { context, page } = await fresh();
+  const named = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game');
+    const g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+    /* One frame, with the world clock standing still. frame() advances by
+       however long has really passed since the last call, so two captures
+       taken the ordinary way run a different number of ticks and differ in
+       every bobbing sprite -- which made a probe pass one run in three
+       whether or not the thing it was looking for was drawn. */
+    const paint = () => { d.detach(); d.frame(1000); };
+    const counter = id => {
+      const p = d.active();
+      p.story.lands = {};
+      d.resetWorld(); d.enterLand(id, true);
+      paint();
+      return Array.from(g.getImageData(0, Math.round(56 * scale), cv.width,
+        Math.round(14 * scale)).data).join(',');
+    };
+    const rows = {};
+    const kinds = {};
+    for (const [id, land] of Object.entries(d.LANDS)) {
+      if (!land.pickups) continue;
+      rows[id] = counter(id);
+      kinds[id] = land.pickups.kind;
+    }
+    const ids = Object.keys(rows);
+    const clashes = [];
+    for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) {
+      if (kinds[ids[i]] !== kinds[ids[j]] && rows[ids[i]] === rows[ids[j]]) {
+        clashes.push(ids[i] + ' and ' + ids[j] + ' both say the same thing');
+      }
+    }
+    return { clashes, counted: ids.length, labels: Object.keys(d.PICKUPS).map(k => d.PICKUPS[k].label) };
+  });
+  check('two lands asking for different things do not say the same word',
+    named.clashes.length === 0 && named.counted >= 2, named.clashes.join(' | '));
+  check('and every kind of thing to find has a name for itself',
+    named.labels.length > 0 && named.labels.every(l => typeof l === 'string' && l.trim()),
+    JSON.stringify(named.labels));
+  await context.close();
+}
+
+// --- a door waits for whatever the land says it waits for ----------------
+/* A finished errand is not an open door where somebody has to be told. The
+   Glade's brambles come apart at the end of Thistle's thanks and not a tick
+   before, which is the beat the whole land is built around -- and with one
+   opening rule for every land, nothing proved it. */
+{
+  const { context, page } = await fresh();
+  const waits = await page.evaluate(() => {
+    const d = __dreybird;
+    const out = {};
+    for (const [id, land] of Object.entries(d.LANDS)) {
+      if (d.opensOn(land) !== 'thanks') continue;
+      const p = d.active();
+      p.story.lands = {};
+      d.resetWorld(); d.enterLand(id, true);
+      const E = d.land();
+
+      // Everything the land asks for, taken.
+      (land.pickups ? land.pickups.at : []).forEach(sd => {
+        d.bird.x = sd.x; d.bird.y = sd.y; d.bird.vx = 0; d.bird.vy = 0;
+        d.tick();
+      });
+      const afterErrand = E.opened;
+
+      // Then said to, all the way through.
+      d.bird.x = land.npc.x; d.bird.y = land.npc.y - 20; d.bird.vx = 0; d.bird.vy = 0;
+      let guard = 0;
+      while (!d.land().opened && guard++ < 40) d.tapLand(0, 0);
+      out[id] = { got: E.got.every(Boolean), afterErrand, afterTalk: d.land().opened, taps: guard };
+    }
+    return out;
+  });
+  const ids = Object.keys(waits);
+  check('a door that waits on a thanks stays shut while the errand is merely done',
+    ids.length > 0 && ids.every(id => waits[id].got && waits[id].afterErrand === false),
+    JSON.stringify(waits));
+  check('and comes apart when the thanks is finished',
+    ids.every(id => waits[id].afterTalk === true), JSON.stringify(waits));
+  await context.close();
+}
+
+// --- each kind of thing to find is drawn as itself ------------------------
+/* Three branches on the same kind string became one table row. The counter
+   and the puff are checked elsewhere; this is the sprite. Proved by lending
+   one kind another's drawing and requiring the screen to notice. */
+{
+  const { context, page } = await fresh();
+  const sprites = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game');
+    const g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+    /* One frame, with the world clock standing still. frame() advances by
+       however long has really passed since the last call, so two captures
+       taken the ordinary way run a different number of ticks and differ in
+       every bobbing sprite -- which made a probe pass one run in three
+       whether or not the thing it was looking for was drawn. */
+    const paint = () => { d.detach(); d.frame(1000); };
+    const kinds = Object.keys(d.PICKUPS);
+    const bad = [];
+    let probed = 0;
+
+    for (const [id, land] of Object.entries(d.LANDS)) {
+      if (!land.pickups) continue;
+      const mine = land.pickups.kind;
+      const other = kinds.find(k => k !== mine);
+      if (!other) continue;
+      const at = land.pickups.at[0];
+      const ink = () => {
+        d.active().story.lands = {};
+        d.resetWorld(); d.enterLand(id, true);
+        paint();
+        return Array.from(g.getImageData(Math.round((at.x - 14) * scale), Math.round((at.y - 14) * scale),
+          Math.round(28 * scale), Math.round(28 * scale)).data).join(',');
+      };
+      const own = ink();
+      const was = d.PICKUPS[mine].draw;
+      d.PICKUPS[mine].draw = d.PICKUPS[other].draw;
+      const lent = ink();
+      d.PICKUPS[mine].draw = was;
+      probed++;
+      if (own === lent) bad.push(id + ": a " + mine + " drawn as a " + other + " looks no different");
+    }
+    return { bad, probed };
+  });
+  check('a land draws the thing it asks for, and not some other kind',
+    sprites.bad.length === 0 && sprites.probed > 0,
+    sprites.bad.join(' | ') || (sprites.probed + ' probed'));
+  await context.close();
+}
+
+// --- a land nobody wrote any code for ------------------------------------
+/* The whole point of the milestone, asserted rather than asserted about:
+   a land is built here out of nothing but table rows -- a kind of thing to
+   find that did not exist a second ago, a door with nobody to open it, and
+   two perched birds instead of one -- and then played. Every one of those
+   was a branch in a drawing function or an impossibility a commit ago.
+   If authoring a land ever needs code again, this goes red. */
+{
+  const { context, page } = await fresh();
+  const made = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game');
+    const g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+
+    /* One frame, with the world clock standing still. frame() advances by
+       however long has really passed since the last call, so two captures
+       taken the ordinary way run a different number of ticks and differ in
+       every bobbing sprite -- which made a probe pass one run in three
+       whether or not the thing it was looking for was drawn. */
+    const paint = () => { d.detach(); d.frame(1000); };
+    const wasKiln = { east: d.LANDS.kiln.east, ends: d.LANDS.kiln.ends };
+    d.PICKUPS.crumb = {
+      label: 'CRUMBS', puff: '#ffd7a0',
+      draw: (sd) => { g.fillStyle = '#ffd7a0'; g.fillRect(sd.x - 4, sd.y - 4, 8, 8); }
+    };
+    d.STAGES.drift = { id: 'drift', name: 'THE DRIFT', seed: 0x51f7, pipes: 4,
+                       gap: 130, hazards: 0, bg: 0, from: 'kiln', to: 'hollow', finds: 'ghost' };
+    d.LANDS.hollow = {
+      id: 'hollow', name: 'THE HOLLOW', west: 'kiln', ends: true,
+      gate: { opens: 'errand' },                       // a door, and nobody to ask
+      pickups: { kind: 'crumb', ordered: false,
+                 at: [{ x: 120, y: 140 }, { x: 200, y: 220 }] },
+      perches: [{ who: 'sky', x: 90, y: 300 }, { who: 'ember', x: 214, y: 356 }],
+      phase: d.LANDS.kiln.phase
+    };
+    d.LANDS.kiln.east = 'drift';
+    delete d.LANDS.kiln.ends;
+
+    const p = d.active();
+    p.story.flock = ['sky', 'ember'];
+    p.story.lands = {};
+
+    // The game's own running order, asked for after the rows were written.
+    const chainNow = d.chain();
+
+    const ink = at => {
+      paint();
+      const x = Math.round(Math.max(0, at.x - 14) * scale), y = Math.round(Math.max(0, at.y - 14) * scale);
+      return Array.from(g.getImageData(x, y, Math.round(28 * scale), Math.round(28 * scale)).data).join(',');
+    };
+
+    d.resetWorld();
+    d.enterLand('hollow');
+    const E = d.land();
+    const shut = E.opened;
+    const emptyDoor = ink({ x: d.GATE_X, y: 300 });
+    /* Each perch proved by taking it away: two positions with different
+       scenery behind them differ whether or not a bird was ever drawn. */
+    const perches = d.LANDS.hollow.perches;
+    const perchDrawn = perches.map((q, i) => {
+      const there = ink(q);
+      const was = perches.slice();
+      perches.splice(i, 1);
+      d.resetWorld(); d.enterLand('hollow', true);
+      const gone = ink(q);
+      perches.length = 0; for (const r of was) perches.push(r);
+      d.resetWorld(); d.enterLand('hollow', true);
+      return there !== gone;
+    });
+
+    // Read the counter off the canvas, by the row it is painted in.
+    const label = Array.from(g.getImageData(0, Math.round(56 * scale), cv.width,
+      Math.round(14 * scale)).data).join(',');
+    const blankLabel = (() => {
+      const was = d.PICKUPS.crumb.label;
+      d.PICKUPS.crumb.label = '';
+      paint();
+      const row = Array.from(g.getImageData(0, Math.round(56 * scale), cv.width,
+        Math.round(14 * scale)).data).join(',');
+      d.PICKUPS.crumb.label = was;
+      return row;
+    })();
+
+    // Fly to each crumb and take it. No NPC, so nothing else can open the way.
+    for (const sd of d.LANDS.hollow.pickups.at) {
+      d.bird.x = sd.x; d.bird.y = sd.y; d.bird.vx = 0; d.bird.vy = 0;
+      d.tick();
+    }
+    const opened = d.land().opened;
+    const openDoor = ink({ x: d.GATE_X, y: 300 });
+
+    // And the way on from the Kiln is a real passage now.
+    d.resetWorld(); d.enterLand('kiln');
+    d.land().opened = true;
+    d.bird.x = d.W; d.bird.vx = 4;
+    d.tick();
+    const flew = { mode: d.G.mode, stage: d.stage() && d.stage().id };
+
+    // Put the world back exactly as it was.
+    delete d.LANDS.hollow; delete d.STAGES.drift; delete d.PICKUPS.crumb;
+    d.LANDS.kiln.east = wasKiln.east; d.LANDS.kiln.ends = wasKiln.ends;
+    d.resetWorld();
+
+    return { chainNow, shut, opened, doorChanged: emptyDoor !== openDoor,
+             perchDrawn, labelShows: label !== blankLabel, flew };
+  });
+
+  check('a land added as rows alone joins the running order by itself',
+    made.chainNow.join('>') === 'glade>reeds>bank>narrows>kiln>drift>hollow',
+    made.chainNow.join('>'));
+  check('its door opens on the errand, with nobody there to open it',
+    made.shut === false && made.opened === true && made.doorChanged,
+    JSON.stringify({ shut: made.shut, opened: made.opened, drawn: made.doorChanged }));
+  check('a kind of thing to find that did not exist reaches the counter',
+    made.labelShows);
+  check('and it holds two perched birds, each one really drawn where it sits',
+    made.perchDrawn.length === 2 && made.perchDrawn.every(Boolean), JSON.stringify(made.perchDrawn));
+  check('and the way on from the land before it is a real passage',
+    made.flew.mode === 'stage' && made.flew.stage === 'drift', JSON.stringify(made.flew));
   await context.close();
 }
 
@@ -173,6 +445,12 @@ async function fresh(blockFont) {
 
     // Re-entering a land resets its clock, so two captures of the same
     // land are the same picture. Asserted below rather than assumed.
+    /* One frame, with the world clock standing still. frame() advances by
+       however long has really passed since the last call, so two captures
+       taken the ordinary way run a different number of ticks and differ in
+       every bobbing sprite -- which made a probe pass one run in three
+       whether or not the thing it was looking for was drawn. */
+    const paint = () => { d.detach(); d.frame(1000); };
     const shot = (id, at, prep) => {
       const p = d.active();
       p.story.flock = d.SKINS.map(b => b.id);            // perches draw only birds that are home
@@ -180,7 +458,7 @@ async function fresh(blockFont) {
       d.resetWorld();
       d.enterLand(id, true);
       if (prep) prep(d.land());
-      d.frame(performance.now() + 1);
+      paint();
       const x = Math.round(Math.max(0, (at.x - R)) * scale);
       const y = Math.round(Math.max(0, (at.y - R)) * scale);
       const w = Math.round(Math.min(d.W - 1, R * 2) * scale);
@@ -215,12 +493,11 @@ async function fresh(blockFont) {
         const was = land.gate; land.gate = false; return () => { land.gate = was; };
       }, E => { E.opened = false; });
 
-      /* The one position here that is not read from the table, because
-         drawRoosting hard-codes it -- a land cannot hold two perched birds
-         today. When perches become a list, this reads it like the rest. */
-      if (land.roost) probe('perch', { x: 214, y: 350 }, () => {
-        const was = land.roost; land.roost = null; return () => { land.roost = was; };
-      });
+      (land.perches || []).forEach((perch, i) => probe('perch ' + i, perch, () => {
+        const was = land.perches.slice();
+        land.perches.splice(i, 1);
+        return () => { land.perches.length = 0; for (const q of was) land.perches.push(q); };
+      }));
     }
     return { bad, tested: tested.length, stable };
   });
