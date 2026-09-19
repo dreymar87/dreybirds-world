@@ -210,10 +210,60 @@ const RUN = `(score) => {
   await context.close();
 }
 
-// --- back-pay for play from before the shop existed --------------------
+// --- you fly what you may fly ------------------------------------------
+/* Buying was enforced when the shop card was tapped and nowhere else, so a
+   save naming any bird flew it: the shop showed a locked card while the
+   locked bird was in the air. Driven the way it would really be done --
+   write the record, load the game -- not by calling the equip path, which
+   is the one path that was never the problem. */
+{
+  const flies = async saved => {
+    const { context, page } = await fresh(
+      ([key, saved]) => {
+        localStorage.setItem(key, JSON.stringify({
+          activeId: 'p1',
+          profiles: [Object.assign({
+            id: 'p1', name: 'Edited', best: 0, created: 1, coins: 0, owned: [], granted: true
+          }, saved)]
+        }));
+        Object.defineProperty(window, 'indexedDB', { get() { return undefined; } });
+      }, [VAULT_KEY, saved]);
+    const out = await page.evaluate(() => ({ skin: __dreybird.G.skin.id, trail: __dreybird.G.trail.id }));
+    await context.close();
+    return out;
+  };
+  const unbought = await flies({ skin: 'prism', trail: 'ember' });   // 200 and 95 coins, never paid
+  check('a bird named in a save but never bought is not flown',
+    unbought.skin === 'classic', JSON.stringify(unbought));
+  check('and the same goes for the trail behind it',
+    unbought.trail !== 'ember', JSON.stringify(unbought));
+
+  const unreached = await flies({ skin: 'ember', best: 0 });         // needs a best of 15
+  check('nor is a bird whose score was never reached',
+    unreached.skin === 'classic', JSON.stringify(unreached));
+
+  const bought = await flies({ skin: 'prism', owned: ['bird:prism'] });
+  const reached = await flies({ skin: 'ember', best: 15 });
+  check('while one actually bought, and one actually reached, both fly',
+    bought.skin === 'prism' && reached.skin === 'ember',
+    JSON.stringify({ bought: bought.skin, reached: reached.skin }));
+
+  /* The rescued flockmate is the case that must not be caught by this: a
+     story player has a best of 0 forever and never buys anything. */
+  const rescued = await flies({ skin: 'sky', best: 0, owned: ['bird:sky'] });
+  check('and a rescued flockmate still flies at a best of nothing',
+    rescued.skin === 'sky', JSON.stringify(rescued));
+}
+
+// --- a written-in history buys nothing ---------------------------------
+/* This used to be the back-pay check, inherited from the classic game where
+   there really were players from before the shop. There never was such a
+   release of THIS game, and the code it protected turned stats straight into
+   coins and XP at boot -- guarded only by a boolean sitting in the same
+   record, editable from devtools in seconds. The same fixture now asserts
+   the opposite: a save claiming a long career is worth nothing. */
 {
   const { context, page } = await fresh(key => {
-    // A profile in exactly the shape the previous release wrote.
     localStorage.setItem(key, JSON.stringify({
       activeId: 'old1',
       profiles: [{
@@ -223,21 +273,24 @@ const RUN = `(score) => {
     }));
     Object.defineProperty(window, 'indexedDB', { get() { return undefined; } });
   }, VAULT_KEY);
-  const granted = await page.evaluate(() => {
+  const paid = await page.evaluate(() => {
     const p = __dreybird.active();
-    return { name: p.name, coins: p.coins, granted: p.granted, best: p.best };
+    return { name: p.name, coins: p.coins, xp: p.xp, best: p.best };
   });
-  // 140 pipes + 6 power-ups×2 + (2×5 + 3×15 + 1×30)
-  const expected = 140 + 12 + (10 + 45 + 30);
-  check('a profile from the previous release is paid for play already done',
-    granted.coins === expected && granted.granted === true,
-    JSON.stringify({ ...granted, expected }));
+  check('a save claiming a long history is not paid a coin for it',
+    paid.coins === 0 && paid.xp === 0, JSON.stringify(paid));
 
-  await page.evaluate(() => __dreybird.flush());
+  // And the far larger claim is worth exactly as much.
+  await page.evaluate(async () => {
+    const d = __dreybird, p = d.active();
+    p.stats.platinum = 1e6; p.stats.pipes = 1e6;
+    await d.flush();
+  });
   await page.reload();
   await page.waitForFunction(() => !!window.__dreybird);
-  const again = await page.evaluate(() => __dreybird.active().coins);
-  check('and is not paid a second time on the next load', again === expected, 'coins=' + again);
+  const again = await page.evaluate(() => ({ coins: __dreybird.active().coins, xp: __dreybird.xp() }));
+  check('and a million medals is still worth nothing on the next load',
+    again.coins === 0 && again.xp === 0, JSON.stringify(again));
   await context.close();
 }
 

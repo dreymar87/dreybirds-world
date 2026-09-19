@@ -73,6 +73,7 @@ async function fresh() {
     // The lightest the game can be made: assist, Bluebird, Updraft. If the
     // pull cannot hold this bird up, it cannot hold any of them up.
     pr.assist = true; pr.xp = d.xpForLevel(30); pr.feathers = ['lift'];
+    pr.owned = ['bird:sky'];              // equipping is gated on ownership
     d.equip('bird', 'sky');
     d.forcePortal(3); d.resetWorld(); d.startPlay(4242);
     let samples = 0, stalled = 0, minGain = 1e9, wrongWay = 0, both = 0;
@@ -216,7 +217,9 @@ async function fresh() {
     const run = bird => {
       const pr = d.active();
       pr.xp = d.xpForLevel(60); pr.feathers = [];
+      pr.owned = ['bird:' + bird];        // equipping is gated on ownership
       d.equip('bird', bird);
+      if (d.G.skin.id !== bird) throw new Error('could not equip ' + bird);
       d.forcePortal(3); d.resetWorld(); d.startPlay(4242);
       pr.coins = 0;
       let entered = false, scoreIn = 0, scoreOut = 0;

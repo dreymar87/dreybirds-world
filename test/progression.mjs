@@ -377,15 +377,17 @@ async function fresh() {
   }, VAULT_KEY);
   await page.goto(PAGE);
   await page.waitForFunction(() => !!window.__dreybird);
+  /* Was: a profile from before levels is back-paid XP. There was never such
+     a release of this game, and the payout read its input from the same
+     editable record it wrote to. XP is earned by flying now, full stop. */
   const granted = await page.evaluate(() => ({ xp: __dreybird.xp(), level: __dreybird.level() }));
-  const expected = 31 + (2 * 5 + 3 * 15 + 1 * 30);
-  check('a profile from before levels is back-paid XP for play already done',
-    granted.xp === expected, JSON.stringify({ ...granted, expected }));
+  check('a written-in history is not back-paid XP',
+    granted.xp === 0 && granted.level === 1, JSON.stringify(granted));
   await page.evaluate(() => __dreybird.flush());
   await page.reload();
   await page.waitForFunction(() => !!window.__dreybird);
   const again = await page.evaluate(() => __dreybird.xp());
-  check('and not paid again on the next load', again === expected, 'xp=' + again);
+  check('and still is not on the next load', again === 0, 'xp=' + again);
   await context.close();
 }
 
@@ -402,8 +404,13 @@ async function fresh() {
     const d = __dreybird, p = d.active();
     p.xp = d.xpForLevel(60);                       // enough level for any perk
     p.feathers = [];
+    /* Buy them for real. Equipping is gated on ownership now, so a bird
+       written into the profile and never bought flies as the free one --
+       which would quietly turn this into three runs of the same bird. */
+    p.owned = ['bird:' + bird].concat(feathers.map(f => 'feather:' + f));
     d.equip('bird', bird);
     for (const f of feathers) d.equip('feather', f);
+    if (d.G.skin.id !== bird) throw new Error('could not equip ' + bird);
     p.coins = 0;
     d.resetWorld();
     d.startPlay(31337);                            // one seed for every bird

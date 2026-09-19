@@ -1000,7 +1000,7 @@
           if (src && typeof src === 'object') {
             for (const k of Object.keys(src)) {
               const v = src[k] || {};
-              out[k] = { got: Array.isArray(v.got) ? v.got.slice(0, 8).map(Boolean) : [],
+              out[k] = { got: Array.isArray(v.got) ? v.got.slice(0, 32).map(Boolean) : [],
                          talked: num(v.talked, 0), opened: v.opened === true };
             }
           }
@@ -1080,19 +1080,16 @@
   }
 
   // Play that happened before the shop existed still counts.
-  function backPay(p) {
-    if (p.granted) return 0;
-    let n = p.stats.pipes * COIN_PIPE + p.stats.powers * COIN_POWER;
-    let xp = p.best;
-    for (const tier of Object.keys(MEDAL_BONUS)) {
-      n += p.stats[tier] * MEDAL_BONUS[tier];
-      xp += p.stats[tier] * MEDAL_BONUS[tier];
-    }
-    p.coins += n;
-    p.xp += xp;
-    p.granted = true;
-    return n;
-  }
+  /* Back-pay is gone, deliberately.
+     It turned stats into coins and XP at boot, and the only thing stopping
+     it happening twice was a boolean sitting in the same record the numbers
+     came from -- all of it editable from devtools in seconds. A save
+     claiming a million platinum medals was worth sixty million coins.
+     It existed for players of a release before the shop. THIS game has had
+     the shop since its first commit, an import refuses any file not tagged
+     for it, and every live profile was already marked paid on its first
+     boot -- so there is nobody to pay and nothing to lose. The classic game
+     keeps its own copy, where the history is real. */
 
   /* Three unlock axes, one predicate each. `need` is a best *score*,
      `lvl` is a *level* — perks used to borrow `need` for their level
@@ -1153,13 +1150,23 @@
     return vault.putProfile(JSON.parse(JSON.stringify(profile)));
   }
 
+  /* Wearing something is the same question as being allowed to buy it.
+     Equipping was enforced on the click path only, so a save naming any
+     bird flew it -- the shop's locked card and the bird in the air
+     disagreed, which is the one thing the flock counter exists not to do.
+     Falls back to the first of each list, which is the free one. */
+  const worn = (list, id) => {
+    const want = list.find(x => x.id === id);
+    return want && available(want) ? want : list[0];
+  };
+
   function applyProfile() {
     if (!profile) return;
-    G.best = profile.best;
-    G.skin = SKINS.find(s => s.id === profile.skin) || SKINS[0];
-    G.hat = byId(HATS, profile.hat);
-    G.trail = byId(TRAILS, profile.trail);
-    G.world = byId(WORLDS, profile.world);
+    G.best = profile.best;              // read first: `available` leans on it
+    G.skin = worn(SKINS, profile.skin);
+    G.hat = worn(HATS, profile.hat);
+    G.trail = worn(TRAILS, profile.trail);
+    G.world = worn(WORLDS, profile.world);
     G.bg = profile.bg;
     // A world holding a phase that no longer exists falls back to cycling.
     if (typeof G.bg === 'number' && G.bg >= phaseList().length) G.bg = 'cycle';
@@ -2163,7 +2170,7 @@
       roostCoins.push({ x, px: x, y: clamp(236 + Math.sin(x * freq + phase) * amp, 70, GY - 70),
                         got: false });
     }
-    if (profile) profile.stats.roosts++;
+    if (profile && G.mode !== 'stage') profile.stats.roosts++;
     G.flash = reduceMotion ? 0 : 0.9;
     audio.power();
   }
@@ -2494,9 +2501,16 @@
     }
     const kept = (profile && profile.story.lands[id]) || null;
     const want = (LANDS[id].pickups ? LANDS[id].pickups.at.length : 0);
+    /* Keep what was found, whatever the land holds now. This used to throw
+       the record away whenever the counts differed, so adding a fourth seed
+       to the Glade would have silently reset every player's errand there --
+       the trap that makes content dangerous. */
+    const keep = new Array(want).fill(false);
+    if (kept && Array.isArray(kept.got)) {
+      for (let i = 0; i < want && i < kept.got.length; i++) keep[i] = !!kept.got[i];
+    }
     G.explore = { id: id, t: 0,
-                  got: kept && kept.got.length === want
-                    ? kept.got.slice() : new Array(want).fill(false),
+                  got: keep,
                   talked: kept ? kept.talked : 0,
                   opened: kept ? kept.opened : false,
                   saying: null, line: 0, missed: -999, held: 0 };
@@ -2607,7 +2621,7 @@
         if (!p.scored && p.x + PIPE_W / 2 < bird.x) {
           p.scored = true;
           G.score++;
-          if (profile) profile.stats.pipes++;
+          if (profile && G.mode !== 'stage') profile.stats.pipes++;
           earn(COIN_PIPE);
           if (G.mode === 'stage' && G.score >= G.stage.target) winStage();
           puff(p.x + PIPE_W / 2, bird.y, '#ffe9a8', 5);
@@ -2623,7 +2637,7 @@
           q.got = true;
           if (q.kind === 'shield') G.shield = G.shieldHits;
           else G.slow = G.puTicks;
-          if (profile) profile.stats.powers++;
+          if (profile && G.mode !== 'stage') profile.stats.powers++;
           earn(COIN_POWER);
           audio.power();
           puff(q.x, q.y, q.kind === 'shield' ? '#7fdcff' : '#c9a0ff', 10);
@@ -4876,9 +4890,18 @@
         for (const f of (incoming.story.flock || [])) {
           if (mine.story.flock.indexOf(f) < 0) mine.story.flock.push(f);
         }
-        // A land the other save has been to and this one has not is progress.
+        /* Field by field, not whichever was seen first. Keeping the local
+           record meant importing a fuller backup could leave the brambles
+           shut and Thistle still asking, on a save whose map already said
+           the passage beyond was cleared. */
         for (const k of Object.keys(incoming.story.lands || {})) {
-          if (!mine.story.lands[k]) mine.story.lands[k] = incoming.story.lands[k];
+          const inc = incoming.story.lands[k], cur = mine.story.lands[k];
+          if (!cur) { mine.story.lands[k] = inc; continue; }
+          cur.opened = cur.opened || inc.opened;
+          cur.talked = Math.max(cur.talked, inc.talked);
+          const mineGot = cur.got.filter(Boolean).length;
+          const incGot = (inc.got || []).filter(Boolean).length;
+          if (incGot > mineGot) cur.got = inc.got.slice();
         }
 
         /* A run history cannot be merged the way a total can: interleaving
@@ -5081,11 +5104,6 @@
     profile = profiles.find(p => p.id === state.activeId) || profiles[0];
     if (profile.id !== state.activeId) vault.setActive(profile.id);
 
-    // Anyone who played before the shop existed is paid for that play,
-    // exactly once — the `granted` flag is what stops a second payout.
-    for (const p of profiles) {
-      if (backPay(p) > 0) vault.putProfile(JSON.parse(JSON.stringify(p)));
-    }
 
     applyProfile();
 

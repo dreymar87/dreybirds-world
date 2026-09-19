@@ -52,6 +52,19 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   steering hint and the land's name card. A clearance check over every land now guards it.
   This commit.
 
+- M3 push 2, progress survives new content, and the save stops paying for claims. Adding a
+  pickup to a land no longer wipes every player's errand there: the prefix of what was found
+  is kept whatever the count is now, and the cap rose from 8 to 32. An imported backup merges
+  land by land instead of whichever record was seen first. And with the same load path open:
+  the boot-time payout is retired outright, because it turned editable stats into coins and XP
+  and guarded the repeat with a boolean in the same editable record; equipping now asks the
+  same question buying does, so a save naming a bird it never bought flies the free one; and
+  pipes, power-ups and roosts cleared inside a level no longer count toward lifetime totals,
+  which anyone could have farmed against a fixed pipe count. Two inherited tests changed sides:
+  they simulated a pre-shop release this game never had, and they assert the opposite now.
+  Three payout tests had to start buying their birds, which is the equip gate working. 354
+  checks. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**
@@ -170,7 +183,7 @@ Gate: land 5 play reports decide whether any land truly needs an item before ITE
 
 - **Green suite, broken game.** 283 checks passed while the map soft-locked. Mitigation: play reports are first-class, and every travel and door check asserts ticks advance.
 - **Local gate speed.** Corrected: the full suite runs in under two minutes serially, 13 suites
-  and 336 checks. The 279 s figure for world.mjs alone came from running several
+  and 354 checks. The 279 s figure for world.mjs alone came from running several
   browser-heavy suites at once and contending for CPU. Run them one at a time. The M3 speed
   item is therefore much less urgent than this plan first said.
 - **Progress wipe from content.** The length check at 2405-2406 discards saved errands on the next enterLand. Mitigation: the M3 cap and prefix fix before any land gains a pickup.

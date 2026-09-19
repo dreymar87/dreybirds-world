@@ -1372,6 +1372,126 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- content must not cost anyone their progress -------------------------
+/* The trap that made every future land dangerous: entering a land threw the
+   saved errand away whenever the number of pickups differed from the number
+   saved. Adding a fourth seed to the Glade would have silently reset every
+   player who was mid-errand there. Driven by really editing the table, the
+   way authoring a land does, rather than by calling the load path. */
+{
+  const { context, page } = await fresh();
+  const kept = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    const at = d.LANDS.glade.pickups.at;
+    const was = at.slice();
+    const enter = () => { d.resetWorld(); d.enterLand('glade'); return d.land(); };
+
+    // Two of the three seeds found, the middle one still out there.
+    p.story.lands.glade = { got: [true, false, true], talked: 1, opened: false };
+    const before = enter().got.slice();
+
+    at.push({ x: 150, y: 300 });                 // a fourth seed, added by an author
+    const grown = enter();
+    const afterGrow = { got: grown.got.slice(), talked: grown.talked };
+
+    at.length = 2;                               // and a land that loses one
+    const shrunk = enter().got.slice();
+
+    at.length = 0; for (const a of was) at.push(a);
+
+    /* The other half of the trap: the validator clipped a saved errand to
+       eight, so a land of nine pickups could never be finished. Measured
+       through the import path, which is where the validator really runs. */
+    const big = JSON.parse(JSON.stringify(d.exportSave()));
+    const copy = JSON.parse(JSON.stringify(big.profiles[0]));
+    copy.id = 'bigland'; copy.name = 'Bigland';
+    copy.story.lands = { glade: { got: new Array(40).fill(true), talked: 0, opened: false } };
+    big.profiles = [copy];
+    d.importSave(big);
+    d.switchProfile('bigland');
+    const cap = d.active().story.lands.glade.got.length;
+    d.switchProfile(p.id);
+    return { before, afterGrow, shrunk, cap };
+  });
+  check('a land that gains a pickup keeps what was already found',
+    kept.afterGrow.got.length === 4 &&
+    kept.afterGrow.got.slice(0, 3).join() === 'true,false,true' &&
+    kept.afterGrow.got[3] === false, JSON.stringify(kept.afterGrow));
+  check('and the conversation with it', kept.afterGrow.talked === 1, JSON.stringify(kept.afterGrow));
+  check('a land that loses one keeps the rest',
+    kept.shrunk.join() === 'true,false', JSON.stringify(kept));
+  // 8 was the old cap, which a land of nine pickups would have silently clipped.
+  check('and the saved errand has room for a land far bigger than any yet',
+    kept.cap >= 32, 'cap=' + kept.cap);
+  await context.close();
+}
+
+// --- a restored backup is merged, not chosen between ---------------------
+/* Whichever record was seen first used to win outright, so importing a
+   fuller backup could leave the brambles shut and Thistle still asking on a
+   save whose map already said the passage beyond was cleared. */
+{
+  const { context, page } = await fresh();
+  const merged = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    p.story.lands.glade = { got: [true, false, false], talked: 2, opened: false };
+    const backup = JSON.parse(JSON.stringify(d.exportSave()));
+    const his = backup.profiles.find(x => x.id === p.id);
+    his.story.lands.glade = { got: [false, true, true], talked: 0, opened: true };
+    const res = d.importSave(backup);
+    const now = d.active().story.lands.glade;
+    return { ok: res.ok, merged: res.merged, got: now.got.slice(), talked: now.talked, opened: now.opened };
+  });
+  check('a restored backup opens a door the live save had shut',
+    merged.opened === true, JSON.stringify(merged));
+  check('without forgetting a conversation only the live save had',
+    merged.talked === 2, JSON.stringify(merged));
+  check('and keeps whichever errand had found more',
+    merged.got.filter(Boolean).length === 2, JSON.stringify(merged));
+  await context.close();
+}
+
+// --- a level is not a free flight ----------------------------------------
+/* Pipes, power-ups and roosts cleared inside a level were counted into the
+   lifetime totals -- the same numbers the boot-time payout used to turn into
+   coins, and the numbers the medals and the stats sheet report. A level is
+   authored content with a fixed pipe count; anyone could farm it. */
+{
+  const { context, page } = await fresh();
+  const counted = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    p.stats.pipes = 0;
+    d.resetWorld();
+    d.enterLand('glade', true);
+    d.enterStage(d.STAGES.reeds);
+    d.press();
+    let guard = 0;
+    while (d.G.score < 5 && guard++ < 20000) {
+      d.G.state = d.states.PLAYING;
+      if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+      d.bird.vy = 0;
+      d.tick();
+    }
+    const inStage = { score: d.G.score, pipes: p.stats.pipes };
+
+    d.resetWorld();
+    d.startPlay(31337);
+    guard = 0;
+    while (d.G.score < 5 && guard++ < 20000) {
+      d.G.state = d.states.PLAYING;
+      if (d.pipes[0]) d.bird.y = d.pipes[0].gap;
+      d.bird.vy = 0;
+      d.tick();
+    }
+    return { inStage, free: { score: d.G.score, pipes: p.stats.pipes } };
+  });
+  check('five pipes cleared in a level move the lifetime total by nothing',
+    counted.inStage.score === 5 && counted.inStage.pipes === 0, JSON.stringify(counted));
+  check('while five in free flight move it by five',
+    counted.free.pipes === 5, JSON.stringify(counted));
+  await context.close();
+}
+
 // --- screenshot: the longest line he has ----------------------------------
 {
   mkdirSync(HERE + 'shots', { recursive: true });
