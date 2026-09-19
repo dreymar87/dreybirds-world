@@ -1450,9 +1450,28 @@
                       sun: '#ffe3a8', star: 0.2 } }
   };
 
+  /* Who lives in the lands. A row is a voice -- first asks, again reminds,
+     thanks opens the door, after is forever afterwards -- and a face: `art`
+     is a pixel grid in the bird's own format, `c` its letters' colours, and
+     `posts` are the rectangles from its feet down to the ground, which is
+     how a stump or a pair of legs reaches GY from wherever the land stood
+     him. The grid is centred on the land's npc.x with its bottom row on
+     npc.y, so a land places a person with one point. Nothing else draws
+     an NPC: a third one is a row here and a point there. */
   const NPCS = {
     thistle: {
       name: 'Thistle',
+      // A mouse on a stump, tail up. B fur, E ear, D eye.
+      c: { B: '#8a7358', E: '#6b5842', D: '#2a2018' },
+      posts: [{ dx: -13, w: 26, colour: '#6b4f33' },
+              { dx: -13, w: 26, h: 5, colour: '#8a6a45' },
+              { dx: -13, w: 3, colour: '#5b4229' }],
+      art: ['............B',
+            '............B',
+            '..EE.......B.',
+            '..BBBBBBBB.B.',
+            '..DBBBBBBBB..',
+            '..BBBBBBBB...'],
       first: ['A mouse looks up from the roots.',
               'Wind took my whole seed store into the reeds.',
               'Three of them landed hereabouts. Fetch them and I will pull these brambles apart for you.'],
@@ -1464,6 +1483,26 @@
     },
     stilt: {
       name: 'Stilt',
+      // A heron, legs to the ground. B body, N neck and head, Y bill, D eye.
+      c: { B: '#b9c6cc', N: '#d7e2e6', Y: '#e8b23c', D: '#2a2018' },
+      posts: [{ dx: -3, w: 2, colour: '#6f7f86' }, { dx: 3, w: 2, colour: '#6f7f86' }],
+      art: ['......NNNNN....',
+            '......NNNDNYYYY',
+            '......NNNNN....',
+            '.......NNN.....',
+            '.......NNN.....',
+            '.......NNN.....',
+            '.......NNN.....',
+            '.......NNN.....',
+            '.......NNN.....',
+            '....BBBBBBB....',
+            '....BBBBBBB....',
+            '....BBBBBBB....',
+            '....BBBBBBB....',
+            '....BBBBBBB....',
+            '....BBBBBBB....',
+            '....BBBBBBB....',
+            '....BBBBBBB....'],
       first: ['A heron watches you land, unhurried.',
               'The narrows past here are close work.',
               'I have set three rings. Fly them in order, lowest first, and I will believe you can.'],
@@ -2852,24 +2891,32 @@
     };
   }
 
+  /* One loop for every pixel grid in the game: the bird, the hats, the
+     people in the lands. Rows of letters, a letter-to-colour map, `.` for
+     nothing, an unknown letter for nothing. `shift` is an optional
+     letter-to-dy map, which is how the bird's wing cells flap without this
+     loop knowing what a wing is. It was written out twice before anyone
+     else needed it. */
+  function drawGrid(c, art, pal, ox, oy, shift) {
+    for (let r = 0; r < art.length; r++) {
+      const row = art[r];
+      for (let col = 0; col < row.length; col++) {
+        const ch = row[col];
+        if (ch === '.') continue;
+        const fill = pal[ch];
+        if (!fill) continue;
+        c.fillStyle = fill;
+        c.fillRect(ox + col * CELL, oy + r * CELL + ((shift && shift[ch]) || 0), CELL, CELL);
+      }
+    }
+  }
+
   function drawBird(c, x, y, rot, skin, wing, alphaOverride) {
-    const P = skin.p;
     c.save();
     c.translate(x, y);
     c.rotate(rot);
     c.globalAlpha = alphaOverride != null ? alphaOverride : (skin.alpha || 1);
-    const ox = -ART_W * CELL / 2, oy = -ART_H * CELL / 2;
-    for (let r = 0; r < ART_H; r++) {
-      const row = BIRD_ART[r];
-      for (let col = 0; col < ART_W; col++) {
-        const ch = row[col];
-        if (ch === '.') continue;
-        const fill = P[ch];
-        if (!fill) continue;
-        c.fillStyle = fill;
-        c.fillRect(ox + col * CELL, oy + r * CELL + (ch === 'W' ? wing : 0), CELL, CELL);
-      }
-    }
+    drawGrid(c, BIRD_ART, skin.p, -ART_W * CELL / 2, -ART_H * CELL / 2, { W: wing });
     c.restore();
   }
 
@@ -2881,19 +2928,8 @@
     c.translate(x, y);
     c.rotate(rot);
     if (alphaOverride != null) c.globalAlpha = alphaOverride;
-    const ox = -HAT_W * CELL / 2;
     const oy = -ART_H * CELL / 2 - HAT_H * CELL + 2 - (hat.float || 0);
-    for (let r = 0; r < HAT_H; r++) {
-      const row = hat.art[r];
-      for (let col = 0; col < HAT_W; col++) {
-        const ch = row[col];
-        if (ch === '.') continue;
-        const fill = hat.c[ch];
-        if (!fill) continue;
-        c.fillStyle = fill;
-        c.fillRect(ox + col * CELL, oy + r * CELL, CELL, CELL);
-      }
-    }
+    drawGrid(c, hat.art, hat.c, -HAT_W * CELL / 2, oy);
     c.restore();
   }
 
@@ -3110,40 +3146,14 @@
      announced before it bites and stays marked while it blows. */
   /* The Glade, drawn over the sky and ground the game already knows how to
      draw — the palette is the only thing that makes it somewhere else. */
-  function drawThistle(x, y) {
-    ctx.save();
-    // A stump to stand on, so he reads as somebody rather than as debris.
-    ctx.fillStyle = '#6b4f33'; ctx.fillRect(x - 13, y, 26, GY - y);
-    ctx.fillStyle = '#8a6a45'; ctx.fillRect(x - 13, y, 26, 5);
-    ctx.fillStyle = '#5b4229'; ctx.fillRect(x - 13, y, 3, GY - y);
-    ctx.fillStyle = '#8a7358';                      // body
-    ctx.fillRect(x - 6, y - 7, 12, 7);
-    ctx.fillRect(x - 8, y - 5, 3, 5);               // head
-    ctx.fillStyle = '#6b5842';                      // ear
-    ctx.fillRect(x - 9, y - 8, 4, 4);
-    ctx.fillStyle = '#2a2018';
-    ctx.fillRect(x - 8, y - 5, 1, 1);               // eye
-    ctx.strokeStyle = '#8a7358'; ctx.lineWidth = 1; // tail
-    ctx.beginPath(); ctx.moveTo(x + 6, y - 3);
-    ctx.quadraticCurveTo(x + 14, y - 6, x + 12, y - 12); ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawStilt(x, y) {
-    ctx.save();
-    ctx.strokeStyle = '#6f7f86'; ctx.lineWidth = 2;            // legs
-    ctx.beginPath(); ctx.moveTo(x - 2, y); ctx.lineTo(x - 3, GY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(x + 3, y); ctx.lineTo(x + 4, GY); ctx.stroke();
-    ctx.fillStyle = '#b9c6cc';                                  // body
-    ctx.fillRect(x - 7, y - 16, 14, 17);
-    ctx.fillStyle = '#d7e2e6';                                  // neck and head
-    ctx.fillRect(x - 1, y - 30, 5, 15);
-    ctx.fillRect(x - 3, y - 34, 9, 6);
-    ctx.fillStyle = '#e8b23c';                                  // bill
-    ctx.fillRect(x + 6, y - 32, 9, 2);
-    ctx.fillStyle = '#2a2018';
-    ctx.fillRect(x + 2, y - 33, 2, 2);
-    ctx.restore();
+  /* Somebody in a land, from their row: posts first, from the feet down to
+     the ground, then the face on top. Centred on x, standing on y. */
+  function drawNpc(c, x, y, npc) {
+    for (const post of npc.posts || []) {
+      c.fillStyle = post.colour;
+      c.fillRect(x + post.dx, y, post.w, post.h != null ? post.h : GY - y);
+    }
+    drawGrid(c, npc.art, npc.c, x - npc.art[0].length * CELL / 2, y - npc.art.length * CELL);
   }
 
   function drawSeed(sd, t) {
@@ -3270,10 +3280,7 @@
     }
 
     const n = npcOf(E.id);
-    if (n) {
-      if (n.spot.who === 'stilt') drawStilt(n.spot.x, n.spot.y);
-      else drawThistle(n.spot.x, n.spot.y);
-    }
+    if (n) drawNpc(ctx, n.spot.x, n.spot.y, n.lines);
 
     if (pk) {
       const have = E.got.filter(Boolean).length;
@@ -3310,8 +3317,10 @@
       textOut(ctx, i + 1 < lines.length ? 'TAP TO GO ON' : 'TAP TO CLOSE',
         W / 2, top + h - 12, 6, 'rgba(255,255,255,.6)', '#20160a');
     } else if (nearNpc()) {
-      const np = npcOf(E.id).spot;
-      textOut(ctx, 'TAP TO TALK', np.x, np.y - 34, 7, '#ffffff', '#20160a');
+      // Above whoever it is, however tall: at a fixed 34 it sat on Stilt's head.
+      const n = npcOf(E.id);
+      textOut(ctx, 'TAP TO TALK', n.spot.x, n.spot.y - n.lines.art.length * CELL - 8,
+        7, '#ffffff', '#20160a');
     }
 
     /* The land names itself on arrival, as a level does. This block used to
@@ -5215,7 +5224,7 @@
     window.__dreybird = {
       W, H, GY, SPEED, SPACING, PIPE_W, GAP, PU_TICKS,
       G, bird, pipes, powers,
-      frame, tick, flap, press, resetWorld, startPlay, drawBird,
+      frame, tick, flap, press, resetWorld, startPlay, drawBird, drawNpc, CELL,
       states: { READY, PLAYING, DYING, OVER },
       detach() { started = false; acc = 0; },
       // profiles

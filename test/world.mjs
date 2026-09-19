@@ -308,9 +308,18 @@ async function fresh(blockFont) {
     };
     d.STAGES.drift = { id: 'drift', name: 'THE DRIFT', seed: 0x51f7, pipes: 4,
                        gap: 130, hazards: 0, bg: 0, from: 'kiln', to: 'hollow', finds: 'ghost' };
+    // A third person, as a row: nobody wrote a sprite for a mole.
+    d.NPCS.mole = {
+      name: 'Mole',
+      c: { D: '#3a2a1a', P: '#d9a08a' },
+      posts: [{ dx: -4, w: 8, colour: '#5a4632' }],
+      art: ['.DDDD.', 'DDDDDD', 'DPDDPD', '.DDDD.'],
+      first: ['A mole, blinking.'], again: ['Still blinking.'], thanks: ['Ah.'], after: ['Mm.']
+    };
     d.LANDS.hollow = {
       id: 'hollow', name: 'THE HOLLOW', west: 'kiln', ends: true,
-      gate: { opens: 'errand' },                       // a door, and nobody to ask
+      npc: { who: 'mole', x: 60, y: 368, r: 40 },
+      gate: { opens: 'errand' },                       // a door the mole has no say in
       pickups: { kind: 'crumb', ordered: false,
                  at: [{ x: 120, y: 140 }, { x: 200, y: 220 }] },
       perches: [{ who: 'sky', x: 90, y: 300 }, { who: 'ember', x: 214, y: 356 }],
@@ -337,6 +346,20 @@ async function fresh(blockFont) {
     const E = d.land();
     const shut = E.opened;
     const emptyDoor = ink({ x: d.GATE_X, y: 300 });
+
+    // The mole, drawn; and drawn as a mole, not as Thistle.
+    const moleSpot = d.LANDS.hollow.npc;
+    const moleOwn = ink(moleSpot);
+    const moleWas = { art: d.NPCS.mole.art, c: d.NPCS.mole.c };
+    Object.assign(d.NPCS.mole, { art: d.NPCS.thistle.art, c: d.NPCS.thistle.c });   // the face, not the stump
+    d.resetWorld(); d.enterLand('hollow', true);
+    const moleAsThistle = ink(moleSpot);
+    Object.assign(d.NPCS.mole, moleWas);
+    d.LANDS.hollow.npc = null;
+    d.resetWorld(); d.enterLand('hollow', true);
+    const moleGone = ink(moleSpot);
+    d.LANDS.hollow.npc = moleSpot;
+    d.resetWorld(); d.enterLand('hollow', true);
     /* Each perch proved by taking it away: two positions with different
        scenery behind them differ whether or not a bird was ever drawn. */
     const perches = d.LANDS.hollow.perches;
@@ -380,18 +403,21 @@ async function fresh(blockFont) {
     const flew = { mode: d.G.mode, stage: d.stage() && d.stage().id };
 
     // Put the world back exactly as it was.
-    delete d.LANDS.hollow; delete d.STAGES.drift; delete d.PICKUPS.crumb;
+    delete d.LANDS.hollow; delete d.STAGES.drift; delete d.PICKUPS.crumb; delete d.NPCS.mole;
     d.LANDS.kiln.east = wasKiln.east; d.LANDS.kiln.ends = wasKiln.ends;
     d.resetWorld();
 
     return { chainNow, shut, opened, doorChanged: emptyDoor !== openDoor,
+             mole: { drawn: moleOwn !== moleGone, itself: moleOwn !== moleAsThistle },
              perchDrawn, labelShows: label !== blankLabel, flew };
   });
 
   check('a land added as rows alone joins the running order by itself',
     made.chainNow.join('>') === 'glade>reeds>bank>narrows>kiln>drift>hollow',
     made.chainNow.join('>'));
-  check('its door opens on the errand, with nobody there to open it',
+  check('a person nobody wrote a sprite for is drawn, and drawn as themselves',
+    made.mole.drawn && made.mole.itself, JSON.stringify(made.mole));
+  check('its door opens on the errand, with nobody asked to open it',
     made.shut === false && made.opened === true && made.doorChanged,
     JSON.stringify({ shut: made.shut, opened: made.opened, drawn: made.doorChanged }));
   check('a kind of thing to find that did not exist reaches the counter',
@@ -421,10 +447,27 @@ async function fresh(blockFont) {
         if (lines.some(l => typeof l !== 'string' || !l.trim())) bad.push(who + ': an empty line in ' + k);
       }
       if (!spoken.has(who)) bad.push(who + ': speaks in no land');
+
+      /* And a face the painter can paint: rows of one width, every letter
+         a colour, every post a rectangle. A ragged grid draws crooked and
+         an unpainted letter draws nothing, both without a word said. */
+      const art = npc.art, pal = npc.c || {};
+      if (!Array.isArray(art) || !art.length) { bad.push(who + ': has no face'); continue; }
+      if (art.some(r => typeof r !== 'string' || r.length !== art[0].length)) bad.push(who + ': a ragged face');
+      const letters = new Set(art.join('').replace(/\./g, ''));
+      if (!letters.size) bad.push(who + ': a face with nothing on it');
+      for (const ch of letters) {
+        if (!/^#[0-9a-f]{6}$/i.test(pal[ch] || '')) bad.push(who + ': no colour for ' + ch);
+      }
+      for (const post of npc.posts || []) {
+        if (!(typeof post.dx === 'number' && post.w > 0 && /^#[0-9a-f]{6}$/i.test(post.colour || ''))) {
+          bad.push(who + ': a post that is not a rectangle');
+        }
+      }
     }
     return { bad, count: Object.keys(d.NPCS).length };
   });
-  check('everyone who speaks has all four things to say, and somewhere to say them',
+  check('everyone who speaks has a face, all four things to say, and somewhere to say them',
     said.bad.length === 0, said.bad.join(' | ').slice(0, 300));
   await context.close();
 }
@@ -534,8 +577,9 @@ for (const blockFont of [false, true]) {
 
     const over = [];
     let longest = 0, count = 0;
-    for (const npc of Object.values(d.NPCS)) for (const speech of Object.values(npc).filter(Array.isArray)) {
-      for (const line of speech) {
+    // The four things anyone says, by name: an NPC's `art` is an array too.
+    for (const npc of Object.values(d.NPCS)) for (const k of ['first', 'again', 'thanks', 'after']) {
+      for (const line of npc[k]) {
         for (const w of d.wrapLines(g, line, asPixelFont, SIZE)) {
           // Press Start 2P advances one em a glyph, so this is the width the
           // line would actually paint at, whatever is loaded right now.
@@ -1847,6 +1891,76 @@ for (const blockFont of [false, true]) {
   // Hazards nominally on is not the same as hazards actually reaching the pipes.
   check('and its hazards actually reach the pipes',
     hard.reeds.hazards === 0 && hard.narrows.hazards > 0, JSON.stringify(hard));
+  await context.close();
+}
+
+// --- everyone is drawn as themselves ---------------------------------------
+/* The render sweep proves somebody is painted where the land says. It
+   cannot tell Thistle from Stilt, and the old call site could not either:
+   it branched on one name and drew Thistle for anyone else. Each NPC is
+   lent another's face and the screen has to notice. */
+{
+  const { context, page } = await fresh();
+  const faces = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game');
+    const g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+    const R = 24;                                  // Stilt is 34px tall
+    const paint = () => { d.detach(); d.frame(1000); };
+    const shot = (id, at) => {
+      d.active().story.lands = {};
+      d.resetWorld(); d.enterLand(id, true);
+      paint();
+      return Array.from(g.getImageData(Math.round(Math.max(0, at.x - R) * scale), Math.round(Math.max(0, at.y - R) * scale),
+        Math.round(R * 2 * scale), Math.round(R * 2 * scale)).data).join(',');
+    };
+    const bad = [];
+    let probed = 0;
+    const whos = Object.keys(d.NPCS);
+    for (const [id, land] of Object.entries(d.LANDS)) {
+      if (!land.npc) continue;
+      const mine = land.npc.who;
+      const other = whos.find(w => w !== mine);
+      if (!other) continue;
+      const own = shot(id, land.npc);
+      /* The face only. Lending the posts too let a painter that ignored
+         the face pass on the strength of the legs having changed. */
+      const row = d.NPCS[mine], was = { art: row.art, c: row.c };
+      row.art = d.NPCS[other].art; row.c = d.NPCS[other].c;
+      const lent = shot(id, land.npc);
+      Object.assign(row, was);
+      probed++;
+      if (own === lent) bad.push(id + ': ' + mine + ' wearing ' + other + "'s face looks no different");
+
+      // And the posts: whatever stands between the feet and the ground.
+      if (row.posts && row.posts.length) {
+        const between = { x: land.npc.x, y: Math.round((land.npc.y + d.GY) / 2) };
+        const stood = shot(id, between);
+        const posts = row.posts; row.posts = [];
+        const floated = shot(id, between);
+        row.posts = posts;
+        if (stood === floated) bad.push(id + ': ' + mine + ' has nothing between feet and ground');
+      }
+    }
+
+    /* The one thing the bird's grid does that no other grid does: its wing
+       cells move. Nothing guarded it, and the icons are drawn at wing 0,
+       so an unchanged icon would not have noticed it going. */
+    const scratch = document.createElement('canvas');
+    scratch.width = 40; scratch.height = 30;
+    const sg = scratch.getContext('2d');
+    const flap = wing => {
+      sg.clearRect(0, 0, 40, 30);
+      d.drawBird(sg, 20, 15, 0, d.SKINS[0], wing, 1);
+      return Array.from(sg.getImageData(0, 0, 40, 30).data).join(',');
+    };
+    const wingMoves = flap(0) !== flap(3);
+    return { bad, probed, wingMoves };
+  });
+  check('each NPC is drawn as themselves, with their own feet on the ground',
+    faces.bad.length === 0 && faces.probed > 0, faces.bad.join(' | ') || (faces.probed + ' probed'));
+  check('and the bird still flaps through the shared painter', faces.wingMoves);
   await context.close();
 }
 

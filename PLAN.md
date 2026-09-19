@@ -95,6 +95,30 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   in three regardless of what it was looking for. They paint on a stopped clock now. 375 checks.
   This commit.
 
+- M3 push 5, one name, one meaning: the ground-hit `land()` is `hitGround()`; the perch/Roost half
+  of the collision had already closed itself when perches became a list.
+
+- M3 push 4b, the last seam: NPC art is a row. `drawThistle` and `drawStilt` were hand-written
+  sprite functions and the render path branched on the NPC's name, so a third person silently
+  drew as Thistle. Each `NPCS` row now carries `art` (a grid in the bird's own format), `c` (its
+  colours) and `posts` (the rectangles from its feet to the ground -- a stump, two legs), and one
+  `drawGrid` loop paints the bird, the hats and the people; it had been written out twice.
+  `drawBird` is pixel-identical through it: `npm run icons` rewrote all five images and git saw no
+  change. The TAP TO TALK label derives from the art's height; at a fixed 34 it sat on the heron's
+  head. Five checks: the speech-width sweep names the four speech keys instead of sweeping every
+  array (an `art` row is an array); every face is rectangular with a colour for every letter; each
+  NPC lent another's face looks different, and each one's posts really stand between feet and
+  ground; a mole authored as a row in the runtime-built land is drawn, and drawn as a mole; and the
+  bird still flaps -- nothing guarded the wing, and the icons are drawn at wing 0. Five mutants.
+  Two came back green the first time: lending a whole row let a painter that ignored the face pass
+  because the legs had changed, so faces are lent without their posts and the posts are checked
+  alone. The sprites are redrawn, not traced -- the tail and the legs were bezier curves -- and the
+  gate says that needs a play report. 378 checks. This commit.
+
+  Seen once during this push and not since: `smoke.mjs` "best score survives a reload" reported
+  before=23 after=0 in one full run, green alone and green on the next full run. A persistence
+  flake is worse than most; watch for a second sighting before treating it as noise.
+
 ## 3. How we decide
 
 **Priority rubric.**
