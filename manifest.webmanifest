@@ -1,8 +1,8 @@
 {
   "name": "DreyBird's World",
-  "short_name": "DreyBird W",
-  "description": "A one-file tribute to Flappy Bird. Tap to flap, thread the pipes, chase a medal.",
-  "id": "dreybird",
+  "short_name": "Drey World",
+  "description": "You are DreyBird. Find the scattered flock across the pipe-lands.",
+  "id": "dreybirds-world",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",
@@ -11,7 +11,7 @@
     "fullscreen"
   ],
   "orientation": "portrait",
-  "background_color": "#3fb3dd",
+  "background_color": "#d9704a",
   "theme_color": "#0d0e14",
   "categories": [
     "games",

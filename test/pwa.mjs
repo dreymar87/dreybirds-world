@@ -125,6 +125,49 @@ const apple = await page.getAttribute('link[rel="apple-touch-icon"]', 'href');
 const appleRes = await context.request.get(ORIGIN + apple);
 check('iOS home-screen icon is served', appleRes.ok(), apple + ' → ' + appleRes.status());
 
+/* --- apart from the classic game, which shares this origin ---------------
+   Both games are served from dreymar87.github.io. A manifest id resolves
+   against the document URL, so while both declared "dreybird" the browser
+   saw ONE app: whoever had the classic installed was never offered this one,
+   and the omnibox's "Open DreyBird" launched the other game. Storage is
+   already guarded in smoke.mjs; this is the install side of the same rule. */
+check('the World installs as its own app, not the classic game\'s',
+  typeof mf.id === 'string' && mf.id.length > 0 && mf.id !== 'dreybird', String(mf.id));
+
+const appleTitle = await page.getAttribute('meta[name="apple-mobile-web-app-title"]', 'content');
+check('and sits on a home screen under its own label',
+  typeof appleTitle === 'string' && appleTitle.length > 0 && appleTitle !== 'DreyBird', String(appleTitle));
+
+const installText = await page.textContent('#install');
+check('and offers to install itself by name',
+  /world/i.test(installText || ''), JSON.stringify(installText));
+
+const metaDesc = await page.getAttribute('meta[name="description"]', 'content');
+check('and describes itself, not the game it was seeded from',
+  /flock/i.test(metaDesc || '') && /flock/i.test(mf.description || '') &&
+  !/tribute to Flappy Bird/i.test(metaDesc || ''),
+  JSON.stringify({ meta: metaDesc, manifest: mf.description }));
+
+/* The icons were byte-identical to the classic game's: two apps, one face.
+   Read the sky out of the PNG rather than trusting the file to have changed
+   -- the classic's sky is #3fb3dd, blue, and this one is the Kiln's, warm,
+   so one pixel settles it and a copied icon fails. */
+const sky = await page.evaluate(src => new Promise(done => {
+  const im = new Image();
+  im.onload = () => {
+    const c = document.createElement('canvas');
+    c.width = im.naturalWidth; c.height = im.naturalHeight;
+    const g = c.getContext('2d');
+    g.drawImage(im, 0, 0);
+    const p = g.getImageData(Math.round(im.naturalWidth * 0.10), Math.round(im.naturalHeight * 0.08), 1, 1).data;
+    done({ r: p[0], g: p[1], b: p[2] });
+  };
+  im.onerror = () => done(null);
+  im.src = src;
+}), 'icons/icon-192.png');
+check('and wears its own face: a warm sky where the classic game\'s is blue',
+  !!sky && sky.r > sky.b + 60, JSON.stringify(sky));
+
 check('theme-color is declared for both themes',
   (await page.locator('meta[name="theme-color"]').count()) === 2);
 

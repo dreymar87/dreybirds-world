@@ -27,10 +27,14 @@ const render = (size, safe) => page.evaluate(([size, safe]) => {
   const g = c.getContext('2d');
   g.imageSmoothingEnabled = false;
 
-  // Day sky, full bleed, so a mask of any shape still lands on sky.
+  /* The Kiln's sky, full bleed, so a mask of any shape still lands on sky --
+     and read from the game's own land table, so the icon cannot drift from
+     the place it shows. Warm where the classic game's icon is blue: on a home
+     screen holding both, colour is what tells them apart at a glance. */
+  const phase = d.LANDS.kiln.phase;
   const sky = g.createLinearGradient(0, 0, 0, size);
-  sky.addColorStop(0, '#3fb3dd');
-  sky.addColorStop(1, '#a9e4f2');
+  sky.addColorStop(0, phase.sky0);
+  sky.addColorStop(1, phase.sky1);
   g.fillStyle = sky;
   g.fillRect(0, 0, size, size);
 
@@ -50,20 +54,29 @@ const render = (size, safe) => page.evaluate(([size, safe]) => {
   pipe(0, 150 * u); lip(150 * u);
   pipe(310 * u, size); lip(290 * u);
 
-  // Ground.
-  g.fillStyle = '#79bd3f'; g.fillRect(0, size - 78 * u, size, 20 * u);
-  g.fillStyle = '#ddd694'; g.fillRect(0, size - 58 * u, size, 58 * u);
+  // Ground, from the same land.
+  g.fillStyle = phase.grass; g.fillRect(0, size - 78 * u, size, 20 * u);
+  g.fillStyle = phase.dirt;  g.fillRect(0, size - 58 * u, size, 58 * u);
   g.fillStyle = 'rgba(0,0,0,.10)';
   for (let x = 0; x < size; x += 46 * u) g.fillRect(x, size - 44 * u, 22 * u, 8 * u);
 
-  // The bird, drawn by the game itself, scaled to the safe area.
+  /* Two birds, drawn by the game itself, scaled to the safe area. The
+     classic game's icon is one bird; this one is a flock, which is the whole
+     premise. Bluebird is placed relative to the safe area rather than the
+     edge, so the maskable crop pulls him in with DreyBird instead of
+     clipping him off. */
   const scale = (size * safe) / 34;      // the sprite is 34 px wide
-  g.save();
-  g.translate(size * 0.40, size * 0.43);
-  g.scale(scale, scale);
-  g.rotate(-0.24);
-  d.drawBird(g, 0, 0, 0, d.G.skin, 0, 1);
-  g.restore();
+  const flier = (x, y, rot, s, skin) => {
+    g.save();
+    g.translate(x, y);
+    g.scale(scale * s, scale * s);
+    g.rotate(rot);
+    d.drawBird(g, 0, 0, 0, skin, 0, 1);
+    g.restore();
+  };
+  const sky_ = d.SKINS.find(b => b.id === 'sky') || d.G.skin;
+  flier(size * 0.40 - size * safe * 0.44, size * 0.43 - size * safe * 0.40, -0.30, 0.62, sky_);
+  flier(size * 0.40, size * 0.43, -0.24, 1, d.G.skin);
 
   return c.toDataURL('image/png');
 }, [size, safe]);

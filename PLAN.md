@@ -26,6 +26,11 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
 - `65d373c` M1 teach the thumb and size the text: HOLD TO FLY is its own line and retires after a second and a half of holding, a tap in open air flicks the wing and pops, the land HUD sits below the buttons, speech paints at 7 px with prompts at 6, and the dialogue is paged as sentences.
 - M1 door re-arm, keyboard and sound: a door asks for a fresh press, arrows and WASD steer in a land, Space is a tap there, and a tap in a land wakes the audio inside the gesture. This commit. M1 is complete; the gate is your timed fresh-profile play report.
 
+- M2 push 1, its own name and face: the manifest id, short name, blurb and home-screen label are
+  the World's own, the footer, install button and offline page name it, and the icons are
+  regenerated with the Kiln's warm sky and Bluebird alongside DreyBird. The classic game and
+  this one were one app to a browser until now. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

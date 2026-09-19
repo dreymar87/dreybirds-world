@@ -1,7 +1,7 @@
 /* DreyBird service worker — hand-rolled, no dependencies.
    Bump CACHE to ship an update; the old cache is dropped on activate. */
 
-const CACHE = 'dbw-v6';   // bumped when the app shell changes
+const CACHE = 'dbw-v7';   // bumped when the app shell changes
 const RUNTIME = 'dbw-runtime-v1';
 
 const SHELL = [
@@ -78,9 +78,9 @@ function pageFirst(req) {
   const cached = () => caches.match('./index.html', { ignoreSearch: true })
     .then(hit => hit || caches.match('./'))
     .then(hit => hit || new Response(
-      '<!doctype html><meta charset="utf-8"><title>DreyBird</title>' +
-      '<p style="font:16px/1.5 system-ui;padding:24px">DreyBird is not cached on ' +
-      'this device yet, and the network did not answer. Reconnect and reload.</p>',
+      '<!doctype html><meta charset="utf-8"><title>DreyBird\u2019s World</title>' +
+      '<p style="font:16px/1.5 system-ui;padding:24px">DreyBird\u2019s World is not ' +
+      'cached on this device yet, and the network did not answer. Reconnect and reload.</p>',
       { headers: { 'content-type': 'text/html; charset=utf-8' } }));
 
   // A 404 or a 500 is not a build; fall through to the cache rather than
