@@ -359,11 +359,12 @@ npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run test:portal          # 19  portals, the pull, the Roost
 npm run test:stats           # 20  the stats screen and its chart
-npm run test:world           # 102  the lands, the flight, the passages
-npm run icons                #     regenerate the app icons
+npm run test:world           # 103  the lands, the flight, the passages
+npm run icons                #     regenerate the app icons and the share card
+npm run shots                #     one picture of every screen, into bench/
 ```
 
-339 checks in total.
+340 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take

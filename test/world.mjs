@@ -1036,7 +1036,9 @@ for (const blockFont of [false, true]) {
       CanvasRenderingContext2D.prototype.fillText = function (s) { seen.add(String(s)); return orig.apply(this, arguments); };
       d.frame(performance.now() + 200);
       CanvasRenderingContext2D.prototype.fillText = orig;
-      const band = g.getImageData(0, Math.round(104 * scale), cv.width, Math.round(20 * scale)).data;
+      // The strip the found birds are drawn in. Wide enough that nudging
+      // the card a few pixels does not need this number edited.
+      const band = g.getImageData(0, Math.round(196 * scale), cv.width, Math.round(40 * scale)).data;
       return { text: [...seen].join(' | '), band };
     };
     const at = flock => { pr.story.flock = flock; d.resetWorld(); d.enterLand('kiln'); for (let i = 0; i < 120; i++) d.tick(); return look(); };
@@ -1169,6 +1171,57 @@ for (const blockFont of [false, true]) {
   await page.mouse.up();
   check('a finger down in a land wakes the audio, inside the gesture', before === true && down.ctx === true && down.mode === 'explore',
     JSON.stringify({ before, down }));
+  await context.close();
+}
+
+// --- no two labels sit on top of each other, in any land -----------------
+/* The Kiln's ending card and the land's own name card were written a
+   milestone apart and never appeared on one screen until a contact sheet put
+   them there: the card's header landed under the steering hint and the name
+   landed in the middle of the card. Nothing in the suite could see it,
+   because a label drawn over another label still draws. This measures every
+   piece of text a land paints in one frame and asserts the boxes are clear
+   of each other, so the next land cannot repeat it. */
+{
+  const { context, page } = await fresh();
+  const clashes = await page.evaluate(() => {
+    const d = __dreybird;
+    const out = [];
+    for (const id of Object.keys(d.LANDS)) {
+      const boxes = [];
+      const orig = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (text, x, y) {
+        const size = parseFloat(this.font) || 8;
+        const wid = this.measureText(String(text)).width;
+        const left = this.textAlign === 'center' ? x - wid / 2 : x;
+        boxes.push({ t: String(text), l: left, r: left + wid, top: y - size / 2, bot: y + size / 2 });
+        return orig.apply(this, arguments);
+      };
+      d.active().story.flock = ['sky', 'ember'];
+      d.resetWorld();
+      d.enterLand(id, true);
+      d.frame(performance.now() + 100);      // on arrival, name card showing
+      CanvasRenderingContext2D.prototype.fillText = orig;
+
+      /* Clearance, not strict overlap. The two labels this was written for
+         miss each other by a single pixel and still read as one smudge, so
+         the rule is that lines sharing any horizontal span must leave a few
+         pixels of air between them. */
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const a = boxes[i], b = boxes[j];
+          const sideBySide = a.l >= b.r || b.l >= a.r;
+          const gap = Math.max(a.top, b.top) - Math.min(a.bot, b.bot);
+          if (!sideBySide && gap < 3) {
+            out.push(id + ': "' + a.t + '" and "' + b.t + '" ' +
+                     (gap < 0 ? 'overlap by ' + (-gap).toFixed(1) : 'sit ' + gap.toFixed(1) + 'px apart'));
+          }
+        }
+      }
+    }
+    return out;
+  });
+  check('no land paints one label on top of another', clashes.length === 0, clashes.join(' | ').slice(0, 300));
   await context.close();
 }
 

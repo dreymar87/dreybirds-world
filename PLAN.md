@@ -45,6 +45,13 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   by the icon script from the game's own birds and palette. Deliberately not precached, since
   only crawlers fetch it. M2 is complete. This commit.
 
+- M3 push 1, see the pictures: `bench/shots.mjs` renders every land and passage state into one
+  contact sheet, built from the tables so a new land appears by itself, uploaded by CI. `?land=`
+  and `?stage=` open one screen directly, arriving quietly so a debug jump cannot write
+  progress. It paid for itself immediately: the Kiln's ending card was sitting on top of the
+  steering hint and the land's name card. A clearance check over every land now guards it.
+  This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

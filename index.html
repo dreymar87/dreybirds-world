@@ -2480,9 +2480,12 @@
     bird.x = 40; bird.px = 40;
   }
 
-  function enterLand(id) {
+  /* quiet: arrive without recording it. The contact sheet and the ?land=
+     parameter open a place to look at it, and neither should be able to
+     stamp "been there" into a save or open the map to somewhere unearned. */
+  function enterLand(id, quiet) {
     G.mode = 'explore';
-    if (profile) {
+    if (profile && !quiet) {
       profile.story.at = id;
       // Seen is seen. story.lands[id] is written only on a pickup, so it
       // cannot say whether he has ARRIVED somewhere; this can.
@@ -3167,23 +3170,26 @@
        flock is home, from the same answer the map and the shop give, with
        the birds themselves, and where the rest is. Derived from data, so it
        moves by itself when the next land lands. */
+    /* Below the steering hint at 94 and the land's own name card at 150, not
+       across both. The card and the name were built a milestone apart and
+       never seen on one screen until the contact sheet put them there. */
     const homeBirds = SKINS.filter(home);
-    textOut(ctx, homeBirds.length + ' OF ' + SKINS.length + ' ARE HOME', W / 2, 88, 7, '#ffe07a', '#20160a');
+    textOut(ctx, homeBirds.length + ' OF ' + SKINS.length + ' ARE HOME', W / 2, 186, 7, '#ffe07a', '#20160a');
     const step = Math.min(24, Math.floor((W - 40) / Math.max(1, homeBirds.length)));
     const x0 = W / 2 - (homeBirds.length - 1) * step / 2;
     homeBirds.forEach((b, i) => {
       ctx.save();
-      ctx.translate(x0 + i * step, 114);
+      ctx.translate(x0 + i * step, 214);
       ctx.scale(0.55, 0.55);
       drawBird(ctx, 0, 0, 0, b, 0, 1);
       ctx.restore();
     });
     textOut(ctx, homeBirds.length < SKINS.length ? 'THE REST ARE STILL OUT THERE' : 'THE WHOLE FLOCK, HOME',
-      W / 2, 136, 6, 'rgba(255,255,255,.85)', '#20160a');
+      W / 2, 240, 6, 'rgba(255,255,255,.85)', '#20160a');
     for (const [k, ln] of wrapLines(ctx,
       'More of the world is being built. West is the way back.',
       W - 56, 6).entries()) {
-      textOut(ctx, ln, W / 2, 172 + k * 13, 6, 'rgba(255,255,255,.8)', '#20160a');
+      textOut(ctx, ln, W / 2, 266 + k * 13, 6, 'rgba(255,255,255,.8)', '#20160a');
     }
   }
 
@@ -5103,6 +5109,18 @@
     music.on = !!(profile && profile.music);
     updateStorageNote();
     resetWorld();
+
+    /* Open one screen directly: ?land=glade, ?stage=reeds. For the contact
+       sheet, and for looking at a place by hand without playing to it. It
+       arrives quietly, so nothing about the visit is saved. */
+    const q = new URLSearchParams(location.search);
+    const wantLand = q.get('land'), wantStage = q.get('stage');
+    if (wantStage && STAGES[wantStage]) {
+      enterLand(STAGES[wantStage].from, true);
+      enterStage(STAGES[wantStage]);
+    } else if (wantLand && LANDS[wantLand]) {
+      enterLand(wantLand, true);
+    }
 
     const go = () => requestAnimationFrame(loop);
     if (document.fonts && document.fonts.load) {

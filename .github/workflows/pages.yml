@@ -59,6 +59,34 @@ jobs:
       - name: ${{ matrix.suite }}
         run: npm run test:${{ matrix.suite }}
 
+  # Not a gate. The suite already refuses to ship a land that throws; this is
+  # for the eye -- one picture of every screen, downloadable from this run's
+  # summary, because reviewing the game from a phone is otherwise impossible.
+  shots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        id: browser-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+        if: steps.browser-cache.outputs.cache-hit != 'true'
+      - run: npx playwright install-deps chromium
+        if: steps.browser-cache.outputs.cache-hit == 'true'
+      - run: npm run shots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: contact-sheet
+          path: bench/contact-sheet.png
+
   deploy:
     # The whole point: publishing is impossible while a suite is failing.
     needs: test
