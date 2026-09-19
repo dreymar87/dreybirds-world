@@ -65,6 +65,19 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   Three payout tests had to start buying their birds, which is the equip gate working. 354
   checks. This commit.
 
+- M3 push 3, tests that grow by themselves: one block walks LANDS, STAGES and NPCS instead of
+  naming any of them, so a new land brings its own checks. It requires the graph to agree with
+  itself in both directions, every id to resolve, nothing to be written down that cannot be
+  walked to, and the hand-kept CHAIN to match the world walked from the start -- which is the
+  check that catches that copy going stale before push 4 derives it. A render sweep proves each
+  NPC, pickup, door and perch actually reaches the canvas, by removing it from the table and
+  requiring the pixels where it stood to change. The table checks run first: a row naming a
+  land that does not exist crashes the game on contact, and buried further down the file it was
+  reported as a stack trace inside an unrelated check rather than as the broken row it is.
+  Plus the first round trip through a closed page: the story is written, the page is reloaded,
+  and what was found, who was spoken to, which door is open and who is being flown all come
+  back. Ten mutants, all caught. 365 checks. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

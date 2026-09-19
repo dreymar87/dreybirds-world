@@ -30,6 +30,207 @@ async function fresh(blockFont) {
   return { context, page };
 }
 
+/* The table checks run first on purpose. A row naming a land that does not
+   exist crashes the game the moment anyone flies into it, so left further
+   down the file it is reported as a stack trace inside some unrelated check
+   rather than as the broken row it is. */
+// --- the map is one graph, however many times it is written down ---------
+/* Every one of these walks the tables. Adding a land adds its checks by
+   itself, and a row that names something that does not exist fails here
+   rather than by throwing on the screen a player is standing in.
+   Deliberately not a list of land names: a check that has to be edited to
+   let new content through is a check that will be edited to let it through. */
+{
+  const { context, page } = await fresh();
+  const graph = await page.evaluate(() => {
+    const d = __dreybird;
+    const L = d.LANDS, S = d.STAGES;
+    const bad = [];
+    const ids = Object.keys(L), stages = Object.keys(S);
+
+    for (const id of ids) {
+      const land = L[id];
+      if (land.id !== id) bad.push(id + ': its row is filed under another name');
+      if (!land.name) bad.push(id + ': has no name to announce');
+      if (land.ends && land.east) bad.push(id + ': ends the world and still has a way on');
+
+      if (land.east) {
+        const st = S[land.east];
+        if (!st) bad.push(id + ': east leads to no such passage (' + land.east + ')');
+        else {
+          if (st.from !== id) bad.push(id + ' → ' + st.id + ': the passage thinks it starts elsewhere');
+          const far = L[st.to];
+          if (!far) bad.push(st.id + ': arrives in no such land (' + st.to + ')');
+          else if (far.west !== id) bad.push(st.id + ': the far side does not point back');
+        }
+      }
+      if (land.west) {
+        const back = L[land.west];
+        if (!back) bad.push(id + ': west leads to no such land (' + land.west + ')');
+        else if (!back.east || S[back.east].to !== id) bad.push(id + ': the way back is not the way there');
+      }
+      /* A gate opens at the end of an NPC's thanks and nowhere else. A land
+         with a door and nobody to open it is a dead end that does not look
+         like one -- the seam that makes the Kiln the end of the world. */
+      if (land.gate && !land.npc) bad.push(id + ': has a door and nobody who can open it');
+      if (land.npc && !d.NPCS[land.npc.who]) bad.push(id + ': nobody called ' + land.npc.who);
+      if (land.roost && !d.SKINS.some(b => b.id === land.roost)) bad.push(id + ': no bird called ' + land.roost);
+      if (land.pickups && !land.pickups.at.length) bad.push(id + ': an errand with nothing to find');
+      for (const k of ['sky0', 'sky1', 'grass', 'dirt']) {
+        if (!land.phase || !land.phase[k]) bad.push(id + ': its sky has no ' + k);
+      }
+    }
+
+    for (const sid of stages) {
+      const st = S[sid];
+      if (st.id !== sid) bad.push(sid + ': its row is filed under another name');
+      if (!L[st.from]) bad.push(sid + ': comes from nowhere (' + st.from + ')');
+      if (!L[st.to]) bad.push(sid + ': goes nowhere (' + st.to + ')');
+      if (!(st.pipes > 0)) bad.push(sid + ': no pipes to fly');
+      if (st.finds && !d.SKINS.some(b => b.id === st.finds)) bad.push(sid + ': finds no bird called ' + st.finds);
+    }
+
+    // One start, and it is where a new player is put down.
+    const starts = ids.filter(id => !L[id].west);
+    const ends = ids.filter(id => L[id].ends);
+
+    // Walk it, and see whether the hand-kept CHAIN says the same thing.
+    const walk = [];
+    let at = starts[0], guard = 0;
+    while (at && guard++ < 50) {
+      walk.push(at);
+      const east = L[at].east;
+      if (!east) break;
+      walk.push(east);
+      at = S[east].to;
+    }
+
+    const reached = new Set(walk);
+    const orphans = ids.filter(id => !reached.has(id))
+      .concat(stages.filter(id => !reached.has(id)));
+
+    return { bad, starts, ends, walk, chain: d.CHAIN, orphans,
+             lands: ids.length, stages: stages.length };
+  });
+
+  check('every land and passage names only things that exist',
+    graph.bad.length === 0, graph.bad.join(' | ').slice(0, 300));
+  check('and the ways there and back are the same way',
+    graph.bad.filter(b => /point back|way back|starts elsewhere/.test(b)).length === 0,
+    graph.bad.join(' | ').slice(0, 200));
+  check('there is exactly one place to begin and at least one to end',
+    graph.starts.length === 1 && graph.ends.length >= 1,
+    JSON.stringify({ starts: graph.starts, ends: graph.ends }));
+  check('nothing is written down that cannot be walked to',
+    graph.orphans.length === 0, graph.orphans.join(', '));
+  /* CHAIN is a fourth hand-kept copy of this graph. Until it is derived,
+     this is the check that catches the copy going stale. */
+  check('and the map’s running order matches the world it describes',
+    graph.chain.join('>') === graph.walk.join('>'),
+    graph.chain.join('>') + '  vs  ' + graph.walk.join('>'));
+  await context.close();
+}
+
+// --- everyone who speaks has all four things to say ----------------------
+{
+  const { context, page } = await fresh();
+  const said = await page.evaluate(() => {
+    const d = __dreybird;
+    const bad = [];
+    const spoken = new Set(Object.values(d.LANDS).filter(l => l.npc).map(l => l.npc.who));
+    for (const [who, npc] of Object.entries(d.NPCS)) {
+      if (!npc.name) bad.push(who + ': has no name to put to the voice');
+      /* All four, because the land walks them in order and an absent one is
+         a silent tap: first asks, again reminds, thanks opens the door,
+         after is what he says forever afterwards. */
+      for (const k of ['first', 'again', 'thanks', 'after']) {
+        const lines = npc[k];
+        if (!Array.isArray(lines) || !lines.length) { bad.push(who + ': no ' + k); continue; }
+        if (lines.some(l => typeof l !== 'string' || !l.trim())) bad.push(who + ': an empty line in ' + k);
+      }
+      if (!spoken.has(who)) bad.push(who + ': speaks in no land');
+    }
+    return { bad, count: Object.keys(d.NPCS).length };
+  });
+  check('everyone who speaks has all four things to say, and somewhere to say them',
+    said.bad.length === 0, said.bad.join(' | ').slice(0, 300));
+  await context.close();
+}
+
+// --- and all of it actually reaches the screen ---------------------------
+/* The suite drives the simulation and almost never renders. A land whose
+   row is perfect can still draw nothing at all -- which is the failure a
+   player meets first. Each feature is proved by removing it from the table
+   and requiring the pixels where it stood to change. */
+{
+  const { context, page } = await fresh();
+  const drawn = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game');
+    const g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+    const R = 16;
+
+    // Re-entering a land resets its clock, so two captures of the same
+    // land are the same picture. Asserted below rather than assumed.
+    const shot = (id, at, prep) => {
+      const p = d.active();
+      p.story.flock = d.SKINS.map(b => b.id);            // perches draw only birds that are home
+      p.story.lands = {};
+      d.resetWorld();
+      d.enterLand(id, true);
+      if (prep) prep(d.land());
+      d.frame(performance.now() + 1);
+      const x = Math.round(Math.max(0, (at.x - R)) * scale);
+      const y = Math.round(Math.max(0, (at.y - R)) * scale);
+      const w = Math.round(Math.min(d.W - 1, R * 2) * scale);
+      const h = Math.round(Math.min(d.H - 1, R * 2) * scale);
+      return Array.from(g.getImageData(x, y, w, h).data).join(',');
+    };
+
+    const bad = [], tested = [];
+    const stable = shot('glade', { x: 144, y: 256 }) === shot('glade', { x: 144, y: 256 });
+
+    for (const [id, land] of Object.entries(d.LANDS)) {
+      const probe = (what, at, hide, prep) => {
+        const there = shot(id, at, prep);
+        const undo = hide();
+        const gone = shot(id, at, prep);
+        undo();
+        tested.push(id + '/' + what);
+        if (there === gone) bad.push(id + ': nothing is drawn at its ' + what);
+      };
+
+      if (land.npc) probe('npc', land.npc, () => {
+        const was = land.npc; land.npc = null; return () => { land.npc = was; };
+      });
+
+      if (land.pickups) land.pickups.at.forEach((at, i) => probe('pickup ' + i, at, () => {
+        const was = land.pickups.at.slice();
+        land.pickups.at.splice(i, 1);
+        return () => { land.pickups.at.length = 0; for (const a of was) land.pickups.at.push(a); };
+      }, E => { E.got = E.got.map(() => false); }));
+
+      if (land.gate) probe('door', { x: d.GATE_X, y: 300 }, () => {
+        const was = land.gate; land.gate = false; return () => { land.gate = was; };
+      }, E => { E.opened = false; });
+
+      /* The one position here that is not read from the table, because
+         drawRoosting hard-codes it -- a land cannot hold two perched birds
+         today. When perches become a list, this reads it like the rest. */
+      if (land.roost) probe('perch', { x: 214, y: 350 }, () => {
+        const was = land.roost; land.roost = null; return () => { land.roost = was; };
+      });
+    }
+    return { bad, tested: tested.length, stable };
+  });
+  check('the same land drawn twice is the same picture', drawn.stable);
+  check('every NPC, pickup, door and perch in the tables reaches the canvas',
+    drawn.bad.length === 0 && drawn.tested > 0,
+    drawn.bad.join(' | ').slice(0, 300) || (drawn.tested + ' probed'));
+  await context.close();
+}
+
 // --- every line of speech fits the box it is drawn in --------------------
 // Canvas does not wrap. Before this, a 52-character line ran off both edges
 // of a 288px screen, because the text is centred and fillText simply draws.

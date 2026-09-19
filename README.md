@@ -349,7 +349,7 @@ npm test                     # every suite, one verdict
 
 npm run test:smoke           # 29  gameplay, top bar, storage, CI coverage
 npm run test:pwa             # 24  installability, offline, updates, font-hang
-npm run test:profiles        # 28  storage, profiles, import/export
+npm run test:profiles        # 31  storage, profiles, import/export
 npm run test:cosmetics       # 20  economy, shop, ownership, rendering
 npm run test:determinism     # 12  seeded runs and backgrounds
 npm run test:comfort         # 16  haptics, pause, assist
@@ -359,12 +359,12 @@ npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run test:portal          # 19  portals, the pull, the Roost
 npm run test:stats           # 20  the stats screen and its chart
-npm run test:world           # 112  the lands, the flight, the passages
+npm run test:world           # 120  the lands, the flight, the passages
 npm run icons                #     regenerate the app icons and the share card
 npm run shots                #     one picture of every screen, into bench/
 ```
 
-354 checks in total.
+365 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take

@@ -414,6 +414,59 @@ async function fresh(init, arg) {
   await context.close();
 }
 
+// --- the story is still there the next time the game is opened -----------
+/* No check has ever closed the page on a story in progress and opened it
+   again. Every world check drives one long-lived page, so the whole of the
+   story's storage -- what was found, who was spoken to, which doors are
+   open, where he is standing -- has only ever been read back out of the
+   same memory that wrote it. */
+{
+  const { context, page } = await fresh();
+  const before = await page.evaluate(async () => {
+    const d = __dreybird, p = d.active();
+    d.resetWorld();
+    d.enterLand('glade');                        // writes at, and seen:glade
+    const E = d.land();
+    E.got[0] = true; E.got[2] = true;            // two seeds found, one still out
+    E.talked = 2;
+    E.opened = true;                             // Thistle pulled the brambles apart
+    p.story.lands.glade = { got: E.got.slice(), talked: E.talked, opened: E.opened };
+    p.story.flock.push('sky');                   // Bluebird rescued
+    p.owned.push('bird:sky');
+    p.story.flags.push('cleared:reeds');
+    p.skin = 'sky';
+    d.enterLand('bank');                         // and he walked on east
+    await d.flush();
+    return { at: p.story.at, id: p.id };
+  });
+
+  await page.reload();
+  await page.waitForFunction(() => !!window.__dreybird, null, { timeout: 8000 });
+
+  const after = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    d.resetWorld();
+    d.enterLand('glade', true);                  // quietly: reading, not travelling
+    const E = d.land();
+    return {
+      id: p.id, at: p.story.at, flock: p.story.flock.slice(), flags: p.story.flags.slice(),
+      got: E.got.slice(), talked: E.talked, opened: E.opened,
+      skin: d.G.skin.id
+    };
+  });
+
+  check('a reopened game remembers where he had got to',
+    after.id === before.id && before.at === 'bank' && after.at === 'bank',
+    JSON.stringify({ before: before.at, after: after.at }));
+  check('and what he had found, and the door it opened',
+    after.got.join() === 'true,false,true' && after.talked === 2 && after.opened === true,
+    JSON.stringify(after));
+  check('and who is home, and that he is still flying them',
+    after.flock.indexOf('sky') >= 0 && after.skin === 'sky' &&
+    after.flags.indexOf('cleared:reeds') >= 0, JSON.stringify(after));
+  await context.close();
+}
+
 check('no page errors across every scenario', errors.length === 0, errors.join(' | ').slice(0, 240));
 
 await browser.close();
