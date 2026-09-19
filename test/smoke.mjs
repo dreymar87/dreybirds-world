@@ -59,6 +59,42 @@ const fit = await page.evaluate(() => {
 });
 check('no page scrollbars at 390x844', !fit.hScroll && !fit.vScroll, JSON.stringify(fit));
 check('canvas keeps 288:512 aspect', Math.abs(fit.w / fit.h - 288 / 512) < 0.01, `${fit.w}x${fit.h}`);
+/* Both numbers above were already measured and only one was asserted, so
+   nothing here would have noticed the stage growing past the screen -- the
+   body's overflow:hidden swallows the scrollbar that would have shown it.
+   #stage sizes itself with percentage heights, and a percentage needs a
+   parent with a HEIGHT, not merely a min-height. Quirks mode resolved it
+   anyway; standards mode turns the rule into auto and the stage grows to its
+   aspect ratio. A phone-shaped window is the one place that damage does not
+   show, which is why the sizes below are not all phones. */
+check('and the whole canvas is on screen, top and bottom',
+  fit.top >= 0 && fit.bottom >= 0, JSON.stringify({ top: fit.top, belowBottom: fit.bottom }));
+check('the page is in standards mode',
+  (await page.evaluate(() => document.compatMode)) === 'CSS1Compat',
+  await page.evaluate(() => document.compatMode));
+
+{
+  const shapes = [];
+  for (const [w, h, label] of [[820, 1180, 'tablet'], [1280, 800, 'laptop'], [360, 640, 'small phone']]) {
+    const p2 = await browser.newPage({ viewport: { width: w, height: h } });
+    await p2.goto(PAGE);
+    await p2.waitForFunction(() => !!window.__dreybird, null, { timeout: 5000 });
+    shapes.push(Object.assign({ label }, await p2.evaluate(() => {
+      const r = document.getElementById('game').getBoundingClientRect();
+      return { fits: r.top >= 0 && r.bottom <= window.innerHeight + 1 &&
+                     r.left >= 0 && r.right <= window.innerWidth + 1,
+               overflows: document.documentElement.scrollHeight > window.innerHeight + 1,
+               ratio: +(r.width / r.height).toFixed(3) };
+    })));
+    await p2.close();
+  }
+  check('the canvas fits the window on a tablet, a laptop and a small phone too',
+    shapes.every(s => s.fits), JSON.stringify(shapes));
+  check('and none of them scrolls behind the hidden overflow',
+    shapes.every(s => !s.overflows), JSON.stringify(shapes.map(s => s.label + ':' + s.overflows)));
+  check('and the stage keeps its shape at every one',
+    shapes.every(s => Math.abs(s.ratio - 288 / 512) < 0.01), JSON.stringify(shapes.map(s => s.ratio)));
+}
 
 // --- this game does not share a cupboard with the other one -------------
 // Both games are served from dreymar87.github.io, and IndexedDB and

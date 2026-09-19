@@ -35,6 +35,12 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   its own cache prefix. Both games share an origin and cache keys are origin-scoped, so each
   was wiping the other's shell on every activation. This commit.
 
+- M2 push 3, standards mode: a doctype and a language, and `body` given a definite height so the
+  stage's percentage heights still resolve. Quirks mode had been resolving them anyway; without
+  the height the rule became auto and the canvas ran off the bottom of a laptop screen. The
+  phone is pixel-identical to before and tablet and laptop now fit with no hidden overflow at
+  all, which quirks mode never managed. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**
@@ -152,7 +158,10 @@ Gate: land 5 play reports decide whether any land truly needs an item before ITE
 ## 7. Risks
 
 - **Green suite, broken game.** 283 checks passed while the map soft-locked. Mitigation: play reports are first-class, and every travel and door check asserts ticks advance.
-- **Local gate unusable from a phone.** world.mjs at 279 s locally, full npm test near 25 minutes. Mitigation: the M3 speed item; until then push small and let CI be the gate.
+- **Local gate speed.** Corrected: the full suite runs in under two minutes serially, 13 suites
+  and 336 checks. The 279 s figure for world.mjs alone came from running several
+  browser-heavy suites at once and contending for CPU. Run them one at a time. The M3 speed
+  item is therefore much less urgent than this plan first said.
 - **Progress wipe from content.** The length check at 2405-2406 discards saved errands on the next enterLand. Mitigation: the M3 cap and prefix fix before any land gains a pickup.
 - **Shared origin traps saves.** Storage, caches and install id are origin-scoped. Mitigation: decide the domain in M2, ship export first, no public link until M2 is on main.
 - **Refactor appetite.** Mode table, camera and branching each cost L and show nothing. Mitigation: only the section 3 thresholds trigger them.

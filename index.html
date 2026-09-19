@@ -1,3 +1,5 @@
+<!doctype html>
+<html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DreyBird's World</title>
@@ -59,6 +61,12 @@
 
   body {
     margin: 0;
+    /* Definite, not just a floor. #stage sizes itself with percentage
+       heights, and a percentage resolves against a parent that HAS a height
+       -- min-height alone is not one. Quirks mode resolved it anyway; in
+       standards mode the rule silently became auto and the stage grew to its
+       aspect ratio, running off the bottom of a laptop screen. */
+    height: 100dvh;
     min-height: 100dvh;
     background: radial-gradient(ellipse 120% 80% at 50% -10%, var(--page-2), var(--page) 70%);
     color: var(--text);

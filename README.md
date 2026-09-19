@@ -347,7 +347,7 @@ physics, scoring, collisions, power-ups, unlocks and mobile layout:
 npm install && npx playwright install chromium
 npm test                     # every suite, one verdict
 
-npm run test:smoke           # 24  gameplay, top bar, storage, CI coverage
+npm run test:smoke           # 29  gameplay, top bar, storage, CI coverage
 npm run test:pwa             # 21  installability, offline, updates, font-hang
 npm run test:profiles        # 28  storage, profiles, import/export
 npm run test:cosmetics       # 15  economy, shop, rendering
@@ -363,7 +363,7 @@ npm run test:world           # 102  the lands, the flight, the passages
 npm run icons                #     regenerate the app icons
 ```
 
-331 checks in total.
+336 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
