@@ -86,9 +86,74 @@ const write = (name, dataUrl) => {
   console.log('wrote icons/' + name);
 };
 
+/* The link-preview card. Wide rather than square, so it is composed
+   separately: the flock flying the pipe-lands, which is what the game is
+   about, drawn with the same birds and the same palette as everything else.
+   No text -- a link preview supplies the title and blurb itself, and pixel
+   type at this size would only be a second, worse copy of them. */
+const card = (w, h) => page.evaluate(([w, h]) => {
+  const d = window.__dreybird;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+
+  const phase = d.LANDS.kiln.phase;
+  const sky = g.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, phase.sky0);
+  sky.addColorStop(1, phase.sky1);
+  g.fillStyle = sky;
+  g.fillRect(0, 0, w, h);
+
+  const u = h / 512;
+  const pipePair = (x, gapY, gapH) => {
+    const col = ['#63c53c', '#9de86f', '#2f7a24'];
+    const body = (y, hh) => {
+      g.fillStyle = col[0]; g.fillRect(x, y, 54 * u, hh);
+      g.fillStyle = col[1]; g.fillRect(x + 5 * u, y, 9 * u, hh);
+      g.fillStyle = col[2]; g.fillRect(x + 42 * u, y, 10 * u, hh);
+    };
+    const lip = y => {
+      g.fillStyle = col[0]; g.fillRect(x - 8 * u, y, 70 * u, 20 * u);
+      g.fillStyle = col[1]; g.fillRect(x - 3 * u, y, 9 * u, 20 * u);
+      g.fillStyle = col[2]; g.fillRect(x + 42 * u, y, 10 * u, 20 * u);
+    };
+    body(0, gapY); lip(gapY);
+    body(gapY + gapH, h); lip(gapY + gapH - 20 * u);
+  };
+  pipePair(w * 0.56, h * 0.10, h * 0.42);
+  pipePair(w * 0.82, h * 0.34, h * 0.40);
+
+  g.fillStyle = phase.grass; g.fillRect(0, h - 78 * u, w, 20 * u);
+  g.fillStyle = phase.dirt;  g.fillRect(0, h - 58 * u, w, 58 * u);
+  g.fillStyle = 'rgba(0,0,0,.10)';
+  for (let x = 0; x < w; x += 46 * u) g.fillRect(x, h - 44 * u, 22 * u, 8 * u);
+
+  // The flock, largest first, trailing back and up.
+  const scale = (h * 0.42) / 34;
+  const flock = [
+    { id: null, x: 0.30, y: 0.50, s: 1.00, r: -0.20 },
+    { id: 'sky', x: 0.17, y: 0.33, s: 0.66, r: -0.30 },
+    { id: 'ember', x: 0.07, y: 0.58, s: 0.52, r: -0.12 }
+  ];
+  for (const b of flock) {
+    const skin = b.id ? (d.SKINS.find(s => s.id === b.id) || d.G.skin) : d.G.skin;
+    g.save();
+    g.translate(w * b.x, h * b.y);
+    g.scale(scale * b.s, scale * b.s);
+    g.rotate(b.r);
+    d.drawBird(g, 0, 0, 0, skin, 0, 1);
+    g.restore();
+  }
+  return c.toDataURL('image/png');
+}, [w, h]);
+
 write('icon-192.png', await render(192, 0.50));
 write('icon-512.png', await render(512, 0.50));
 write('icon-maskable-512.png', await render(512, 0.38));   // 80% safe zone
 write('apple-touch-icon-180.png', await render(180, 0.50));
+// Not in the service worker's SHELL on purpose: only link crawlers ever
+// fetch it, and precaching it would cost every installed player the download.
+write('social-1200x630.png', await card(1200, 630));
 
 await browser.close();

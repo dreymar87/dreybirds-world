@@ -209,6 +209,35 @@ check('and wears its own face: a warm sky where the classic game\'s is blue',
 check('theme-color is declared for both themes',
   (await page.locator('meta[name="theme-color"]').count()) === 2);
 
+/* --- a pasted link is how this game gets shared ------------------------
+   Every route out of here ends in a URL someone pastes. Without these a
+   share is a bare link, and the description it falls back to was the
+   classic game's until this milestone. */
+const og = await page.evaluate(() => {
+  const get = p => { const m = document.querySelector('meta[property="' + p + '"]'); return m && m.content; };
+  return { type: get('og:type'), title: get('og:title'), desc: get('og:description'),
+           url: get('og:url'), image: get('og:image'),
+           card: (document.querySelector('meta[name="twitter:card"]') || {}).content };
+});
+check('a shared link carries a title, a blurb and a card type',
+  !!og.title && /world/i.test(og.title) && !!og.desc && /flock/i.test(og.desc) &&
+  og.type === 'website' && og.card === 'summary_large_image', JSON.stringify(og));
+check('and an absolute image URL, since a relative one does not travel',
+  typeof og.image === 'string' && /^https:\/\//.test(og.image) &&
+  typeof og.url === 'string' && /^https:\/\//.test(og.url), JSON.stringify({ image: og.image, url: og.url }));
+
+// The card has to exist at the size it claims, or the preview is a blank box.
+const socialPath = 'icons/' + String(og.image).split('/').pop();
+const socialRes = await context.request.get(ORIGIN + socialPath);
+const socialDims = socialRes.ok() ? await page.evaluate(src => new Promise(done => {
+  const im = new Image();
+  im.onload = () => done(im.naturalWidth + 'x' + im.naturalHeight);
+  im.onerror = () => done('load-failed');
+  im.src = src;
+}), socialPath) : 'http-' + socialRes.status();
+check('and the card it points at is really served at 1200x630',
+  socialDims === '1200x630', socialPath + ' → ' + socialDims);
+
 // --- the install affordance -------------------------------------------
 check('install button stays hidden until the browser offers a prompt',
   await page.isHidden('#install'));

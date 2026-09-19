@@ -41,6 +41,10 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   phone is pixel-identical to before and tablet and laptop now fit with no hidden overflow at
   all, which quirks mode never managed. This commit.
 
+- M2 push 4, a link that previews: Open Graph and Twitter card meta, and a 1200x630 card drawn
+  by the icon script from the game's own birds and palette. Deliberately not precached, since
+  only crawlers fetch it. M2 is complete. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**
