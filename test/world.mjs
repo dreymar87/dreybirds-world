@@ -306,8 +306,8 @@ async function fresh(blockFont) {
       label: 'CRUMBS', puff: '#ffd7a0',
       draw: (sd) => { g.fillStyle = '#ffd7a0'; g.fillRect(sd.x - 4, sd.y - 4, 8, 8); }
     };
-    d.STAGES.drift = { id: 'drift', name: 'THE DRIFT', seed: 0x51f7, pipes: 4,
-                       gap: 130, hazards: 0, bg: 0, from: 'kiln', to: 'hollow', finds: 'ghost' };
+    d.STAGES.tunnel = { id: 'tunnel', name: 'THE TUNNEL', seed: 0x51f7, pipes: 4,
+                       gap: 130, hazards: 0, bg: 0, from: 'kiln', to: 'burrow', finds: 'ghost' };
     // A third person, as a row: nobody wrote a sprite for a mole.
     d.NPCS.mole = {
       name: 'Mole',
@@ -316,8 +316,8 @@ async function fresh(blockFont) {
       art: ['.DDDD.', 'DDDDDD', 'DPDDPD', '.DDDD.'],
       first: ['A mole, blinking.'], again: ['Still blinking.'], thanks: ['Ah.'], after: ['Mm.']
     };
-    d.LANDS.hollow = {
-      id: 'hollow', name: 'THE HOLLOW', west: 'kiln', ends: true,
+    d.LANDS.burrow = {
+      id: 'burrow', name: 'THE BURROW', west: 'kiln', ends: true,
       npc: { who: 'mole', x: 60, y: 368, r: 40 },
       gate: { opens: 'errand' },                       // a door the mole has no say in
       pickups: { kind: 'crumb', ordered: false,
@@ -325,7 +325,7 @@ async function fresh(blockFont) {
       perches: [{ who: 'sky', x: 90, y: 300 }, { who: 'ember', x: 214, y: 356 }],
       phase: d.LANDS.kiln.phase
     };
-    d.LANDS.kiln.east = 'drift';
+    d.LANDS.kiln.east = 'tunnel';
     delete d.LANDS.kiln.ends;
 
     const p = d.active();
@@ -342,35 +342,35 @@ async function fresh(blockFont) {
     };
 
     d.resetWorld();
-    d.enterLand('hollow');
+    d.enterLand('burrow');
     const E = d.land();
     const shut = E.opened;
     const emptyDoor = ink({ x: d.GATE_X, y: 300 });
 
     // The mole, drawn; and drawn as a mole, not as Thistle.
-    const moleSpot = d.LANDS.hollow.npc;
+    const moleSpot = d.LANDS.burrow.npc;
     const moleOwn = ink(moleSpot);
     const moleWas = { art: d.NPCS.mole.art, c: d.NPCS.mole.c };
     Object.assign(d.NPCS.mole, { art: d.NPCS.thistle.art, c: d.NPCS.thistle.c });   // the face, not the stump
-    d.resetWorld(); d.enterLand('hollow', true);
+    d.resetWorld(); d.enterLand('burrow', true);
     const moleAsThistle = ink(moleSpot);
     Object.assign(d.NPCS.mole, moleWas);
-    d.LANDS.hollow.npc = null;
-    d.resetWorld(); d.enterLand('hollow', true);
+    d.LANDS.burrow.npc = null;
+    d.resetWorld(); d.enterLand('burrow', true);
     const moleGone = ink(moleSpot);
-    d.LANDS.hollow.npc = moleSpot;
-    d.resetWorld(); d.enterLand('hollow', true);
+    d.LANDS.burrow.npc = moleSpot;
+    d.resetWorld(); d.enterLand('burrow', true);
     /* Each perch proved by taking it away: two positions with different
        scenery behind them differ whether or not a bird was ever drawn. */
-    const perches = d.LANDS.hollow.perches;
+    const perches = d.LANDS.burrow.perches;
     const perchDrawn = perches.map((q, i) => {
       const there = ink(q);
       const was = perches.slice();
       perches.splice(i, 1);
-      d.resetWorld(); d.enterLand('hollow', true);
+      d.resetWorld(); d.enterLand('burrow', true);
       const gone = ink(q);
       perches.length = 0; for (const r of was) perches.push(r);
-      d.resetWorld(); d.enterLand('hollow', true);
+      d.resetWorld(); d.enterLand('burrow', true);
       return there !== gone;
     });
 
@@ -388,7 +388,7 @@ async function fresh(blockFont) {
     })();
 
     // Fly to each crumb and take it. No NPC, so nothing else can open the way.
-    for (const sd of d.LANDS.hollow.pickups.at) {
+    for (const sd of d.LANDS.burrow.pickups.at) {
       d.bird.x = sd.x; d.bird.y = sd.y; d.bird.vx = 0; d.bird.vy = 0;
       d.tick();
     }
@@ -403,7 +403,7 @@ async function fresh(blockFont) {
     const flew = { mode: d.G.mode, stage: d.stage() && d.stage().id };
 
     // Put the world back exactly as it was.
-    delete d.LANDS.hollow; delete d.STAGES.drift; delete d.PICKUPS.crumb; delete d.NPCS.mole;
+    delete d.LANDS.burrow; delete d.STAGES.tunnel; delete d.PICKUPS.crumb; delete d.NPCS.mole;
     d.LANDS.kiln.east = wasKiln.east; d.LANDS.kiln.ends = wasKiln.ends;
     d.resetWorld();
 
@@ -413,7 +413,7 @@ async function fresh(blockFont) {
   });
 
   check('a land added as rows alone joins the running order by itself',
-    made.chainNow.join('>') === 'glade>reeds>bank>narrows>kiln>drift>hollow',
+    made.chainNow.join('>') === 'glade>reeds>bank>narrows>kiln>tunnel>burrow',
     made.chainNow.join('>'));
   check('a person nobody wrote a sprite for is drawn, and drawn as themselves',
     made.mole.drawn && made.mole.itself, JSON.stringify(made.mole));
@@ -425,7 +425,7 @@ async function fresh(blockFont) {
   check('and it holds two perched birds, each one really drawn where it sits',
     made.perchDrawn.length === 2 && made.perchDrawn.every(Boolean), JSON.stringify(made.perchDrawn));
   check('and the way on from the land before it is a real passage',
-    made.flew.mode === 'stage' && made.flew.stage === 'drift', JSON.stringify(made.flew));
+    made.flew.mode === 'stage' && made.flew.stage === 'tunnel', JSON.stringify(made.flew));
   await context.close();
 }
 
@@ -1563,13 +1563,15 @@ for (const blockFont of [false, true]) {
       const band = g.getImageData(0, Math.round(196 * scale), cv.width, Math.round(40 * scale)).data;
       return { text: [...seen].join(' | '), band };
     };
-    const at = flock => { pr.story.flock = flock; d.resetWorld(); d.enterLand('kiln'); for (let i = 0; i < 120; i++) d.tick(); return look(); };
+    // Wherever the world ends today: the card is painted only where `ends` is.
+    const edge = Object.keys(d.LANDS).find(id => d.LANDS[id].ends);
+    const at = flock => { pr.story.flock = flock; d.resetWorld(); d.enterLand(edge); for (let i = 0; i < 120; i++) d.tick(); return look(); };
     const one = at([]), three = at(['sky', 'ember']);
     let diff = 0;
     for (let i = 0; i < one.band.length; i += 4) if (one.band[i] !== three.band[i] || one.band[i + 1] !== three.band[i + 1] || one.band[i + 2] !== three.band[i + 2]) diff++;
     return { one: one.text, three: three.text, diff };
   });
-  check('the Kiln counts the flock that is home',
+  check('the end of the world counts the flock that is home',
     /1 OF 12 ARE HOME/.test(kiln.one) && /3 OF 12 ARE HOME/.test(kiln.three) && !/WORLD ENDS HERE/.test(kiln.three),
     JSON.stringify({ one: kiln.one.slice(0, 120), three: kiln.three.slice(0, 120) }));
   check('and draws the birds that are home, in pixels', kiln.diff > 100, String(kiln.diff));
@@ -1961,6 +1963,92 @@ for (const blockFont of [false, true]) {
   check('each NPC is drawn as themselves, with their own feet on the ground',
     faces.bad.length === 0 && faces.probed > 0, faces.bad.join(' | ') || (faces.probed + ' probed'));
   check('and the bird still flaps through the shared painter', faces.wingMoves);
+  await context.close();
+}
+
+// --- the ground under the world -------------------------------------------
+/* Four faults in the loop and one in the levels, none visible on a good
+   day. A stage's hitbox and multipliers leaked into the land after it; a
+   frame that fell behind kept a tick debt forever; a dead bird wobbled
+   through its hit-stop; quitting a level left the land it was entered from
+   suspended behind free flight; and a bonus room could grow in the middle
+   of an authored level. Each one asserted the way a player would meet it. */
+{
+  const { context, page } = await fresh();
+  const ground = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    const out = {};
+
+    /* A narrower bird equipped in a land has a narrower box, at once. The
+       classic box is MEASURED from a run first, not derived from the number
+       under test -- a first draft did that and could not fail. */
+    p.owned = ['bird:ghost'];
+    d.equip('bird', 'classic');
+    d.resetWorld(); d.startPlay(7);
+    const classicBox = d.physics().hitW;
+    d.resetWorld(); d.enterLand('glade');
+    d.equip('bird', 'ghost');                       // while standing in the land
+    d.resetWorld(); d.enterLand('glade');
+    const ghost = d.SKINS.find(b => b.id === 'ghost');
+    out.box = { hitW: d.physics().hitW, classic: classicBox, trait: ghost.traits.hit, skin: d.G.skin.id };
+    p.owned = []; d.equip('bird', 'classic');
+
+    // One long frame leaves no debt behind it.
+    d.resetWorld(); d.startPlay(7); d.press();
+    d.detach(); d.frame(0); d.frame(250);
+    out.backlog = d.backlog();
+
+    // A dead bird holds still where it died.
+    d.resetWorld(); d.startPlay(7); d.press();
+    d.bird.y = d.GY; d.bird.vy = 20; d.tick();
+    for (let i = 0; i < 3 && d.G.state !== d.states.DYING && d.G.state !== d.states.OVER; i++) { d.bird.y = d.GY; d.bird.vy = 20; d.tick(); }
+    out.still = { state: d.G.state, px: d.bird.px, x: d.bird.x, py: d.bird.py, y: d.bird.y };
+
+    // Quitting a level clears the land it was entered from.
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds);
+    d.resetWorld();
+    out.quit = { land: d.land(), mode: d.G.mode };
+
+    // No bonus room inside a level, even when one is forced; free flight still has one.
+    const forced = mode => {
+      d.resetWorld();
+      if (mode === 'stage') { d.enterLand('glade'); d.enterStage(d.STAGES.reeds); d.press(); }
+      else d.startPlay(4242);
+      d.forcePortal(3);
+      let guard = 0;
+      while (d.G.score < 6 && guard++ < 20000) {
+        d.G.state = d.states.PLAYING;
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick();
+      }
+      const any = d.pipes.some(q => q.portal) || d.run().pipeIndex && d.G.portalAt != null;
+      d.forcePortal(-1);
+      return any;
+    };
+    out.portal = { stage: forced('stage'), free: forced('free') };
+
+    // Pipes cleared inside a level pay nothing, before the level is won.
+    p.coins = 0;
+    d.resetWorld(); d.enterLand('glade'); d.enterStage(d.STAGES.reeds); d.press();
+    let guard = 0;
+    while (d.G.score < 5 && guard++ < 20000) {
+      d.G.state = d.states.PLAYING;
+      if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick();
+    }
+    out.levelPay = { score: d.G.score, coins: p.coins, won: !!d.stage().won };
+    return out;
+  });
+  check('a narrower bird equipped in a land has a narrower box at once',
+    ground.box.skin === 'ghost' && Math.abs(ground.box.hitW - ground.box.classic * ground.box.trait) < 1e-9 &&
+    ground.box.hitW < ground.box.classic, JSON.stringify(ground.box));
+  check('one long frame leaves no tick debt behind it', ground.backlog <= 1000 / 60 + 1e-9, 'backlog=' + ground.backlog);
+  check('a dead bird holds still where it died',
+    ground.still.px === ground.still.x && ground.still.py === ground.still.y, JSON.stringify(ground.still));
+  check('quitting a level clears the land it was entered from',
+    ground.quit.land === null && ground.quit.mode === 'free', JSON.stringify(ground.quit));
+  check('no bonus room grows inside a level, and free flight still gets one',
+    ground.portal.stage === false && ground.portal.free === true, JSON.stringify(ground.portal));
+  check('pipes cleared inside a level pay nothing',
+    ground.levelPay.score === 5 && ground.levelPay.coins === 0 && !ground.levelPay.won, JSON.stringify(ground.levelPay));
   await context.close();
 }
 

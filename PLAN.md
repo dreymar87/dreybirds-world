@@ -119,6 +119,20 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   before=23 after=0 in one full run, green alone and green on the next full run. A persistence
   flake is worse than most; watch for a second sighting before treating it as noise.
 
+- M4 push 1, the ground under the world, and the Reeds at 12. Five faults nobody had met on a
+  good day: a land flew whatever hitbox and multipliers the last run left (`applyTraits` now runs
+  on `enterLand` as well as `startPlay`); a frame that fell behind kept its tick debt forever
+  (clamped after the loop); a dead bird wobbled through its hit-stop (`px/py/prot` snapped in
+  `die`); quitting a level left the land it came from suspended behind free flight (one
+  `leaveLand` condition in `resetWorld`); and a bonus room could grow inside an authored level
+  (`G.mode !== 'stage'` on the portal, the rng draw untouched). The Reeds is 12 pipes, the owner's
+  call. Six checks, and one more gap closed: nothing had ever asserted that a level pays nothing
+  per pipe. The bird grid's constants moved up beside the hat's so an NPC row can wear the bird's
+  face without a TDZ; the runtime-authored land is the Burrow now, so a real Hollow cannot make it
+  vacuous; the flock-card check finds the end of the world from the table. Six mutants: the hitbox
+  one came back green because the check derived its expected value from the number under test --
+  rewritten to measure the classic box from a real run first. 384 checks. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

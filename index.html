@@ -1238,6 +1238,27 @@
      is equipped, so the combinations multiply.
      . transparent · O outline · A main · B accent  */
   const HAT_W = 11, HAT_H = 6;
+
+  /* Declared here, beside the hat grid, rather than down with drawBird:
+     an NPC row may wear the bird's own face (a flockmate who speaks), and
+     NPCS is written out before drawBird is. */
+  // 17 × 12 cells, 2 px each → the original's 34 × 24 bird.
+  // O outline · B body · L belly · W wing · E eye · P pupil · K beak
+  const BIRD_ART = [
+    '.....OOOOOO......',
+    '...OOBBBBBBBOO...',
+    '..OBBBBBBBEEEEO..',
+    '.OBBBBBBBBEPPEO..',
+    '.OBWWWWWBBEPPEO..',
+    'OBWWWWWWWBEEEEOKK',
+    'OBWWWWWWWBBBBOKKK',
+    'OBWWWWWBBLLLLLKKS',
+    '.OBWWWBBBLLLLLLS.',
+    '..OBBBBLLLLLLLLO.',
+    '...OOBBBLLLLLLOO.',
+    '.....OOOOOOOOO...'
+  ];
+  const ART_W = 17, ART_H = 12, CELL = 2;
   const HATS = [
     { id: 'none', name: 'Bare head', cost: 0, art: null },
     { id: 'cap', name: 'Ball Cap', cost: 45,
@@ -1544,7 +1565,7 @@
      geometry — and the same flight every attempt, so a retry is learning a
      level rather than rerolling one. */
   const STAGES = {
-    reeds: { id: 'reeds', name: 'THE REEDS', seed: 0x7ee05, pipes: 16,
+    reeds: { id: 'reeds', name: 'THE REEDS', seed: 0x7ee05, pipes: 12,
              gap: 122, hazards: 0, bg: 0, from: 'glade', to: 'bank', finds: 'sky' },
     // Longer, tighter, and the first place hazards actually reach the pipes.
     narrows: { id: 'narrows', name: 'THE NARROWS', seed: 0x4a2205, pipes: 22,
@@ -1618,24 +1639,6 @@
     for (const item of list) item.kind = kind;
   }
   const keyOf = item => item.kind + ':' + item.id;
-
-  // 17 × 12 cells, 2 px each → the original's 34 × 24 bird.
-  // O outline · B body · L belly · W wing · E eye · P pupil · K beak
-  const BIRD_ART = [
-    '.....OOOOOO......',
-    '...OOBBBBBBBOO...',
-    '..OBBBBBBBEEEEO..',
-    '.OBBBBBBBBEPPEO..',
-    '.OBWWWWWBBEPPEO..',
-    'OBWWWWWWWBEEEEOKK',
-    'OBWWWWWWWBBBBOKKK',
-    'OBWWWWWBBLLLLLKKS',
-    '.OBWWWBBBLLLLLLS.',
-    '..OBBBBLLLLLLLLO.',
-    '...OOBBBLLLLLLOO.',
-    '.....OOOOOOOOO...'
-  ];
-  const ART_W = 17, ART_H = 12, CELL = 2;
 
   /* ── sky phases: a slow day → sunset → night → dawn cycle ───────── */
   const PHASES = [
@@ -1903,11 +1906,10 @@
        it -- which is exactly what happened until a check caught it. */
     G.hazardMul = 1;
     G.stage = null;
-    if (G.mode === 'explore') leaveLand();
-    else if (G.mode === 'stage') {
-      G.mode = 'free';
-      bird.x = BIRD_X; bird.px = BIRD_X; bird.vx = 0;
-    }
+    /* leaveLand does everything the old stage branch inlined, and also
+       clears the land a level was entered from -- which the stage branch
+       left suspended behind free flight. */
+    if (G.explore || G.mode === 'stage') leaveLand();
     // Belt and braces with startPlay, and load-bearing: quitting from the
     // pause sheet mid-Roost comes through here rather than through a run.
     G.portalAt = null;
@@ -1958,7 +1960,11 @@
        portal would depend on how well you were flying, and the world would
        stop being a pure function of the seed. */
     const pChance = clamp((idx - PORTAL_START) * PORTAL_RAMP, 0, PORTAL_MAX);
-    const portal = G.portalAt == null && (idx === G.forcePortalAt || rPortal < pChance);
+    /* Never in a level: a level is authored, and a bonus room in the middle
+       of it is not. The draw above stays unconditional so the seed still
+       builds the same pipes either way. */
+    const portal = G.portalAt == null && G.mode !== 'stage' &&
+                   (idx === G.forcePortalAt || rPortal < pChance);
     if (portal) G.portalAt = idx;
 
     // Start, or continue, a formation.
@@ -2044,6 +2050,22 @@
     }
   }
 
+  /* The bird-side traits that do not depend on assist. Set here rather than
+     inline in startPlay because a land never calls startPlay: it used to fly
+     whatever hitbox and multipliers the last run left behind, so equipping a
+     narrower bird while standing in a land changed nothing until the next
+     run, and a player arriving by map had never had traits applied at all. */
+  function applyTraits(t) {
+    t = t || traitsNow();
+    G.maxVy   = MAX_VY * t.maxVy;
+    G.hitW    = HIT_W * t.hit;
+    G.hitH    = HIT_H * t.hit;
+    G.puTicks = Math.round(PU_TICKS * t.power);
+    G.shieldHits = Math.max(1, Math.round(t.shieldHits));
+    G.coinMul = t.coin;
+    G.xpMul   = t.xp;
+  }
+
   function startPlay(seed, gap) {
     G.state = PLAYING;
     G.ticks = 0;
@@ -2091,13 +2113,7 @@
        Tying the ceiling to this run's own gravity keeps it true even for
        the lightest loadout the game can assemble. */
     G.pullMax = Math.min(PULL_MAX, G.gravity * 0.55);
-    G.maxVy   = MAX_VY * t.maxVy;
-    G.hitW    = HIT_W * t.hit;
-    G.hitH    = HIT_H * t.hit;
-    G.puTicks = Math.round(PU_TICKS * t.power);
-    G.shieldHits = Math.max(1, Math.round(t.shieldHits));
-    G.coinMul = t.coin;
-    G.xpMul   = t.xp;
+    applyTraits(t);
     trail.length = 0;
     pipes.length = 0;
     powers.length = 0;
@@ -2119,6 +2135,11 @@
     // A few frames of stillness at the moment of impact. Cheap, and it is
     // most of what makes a collision feel like one.
     G.hitStop = reduceMotion ? 0 : 7;
+    /* tick() copies these at its top and returns early during hit-stop,
+       before the copy, so the render lerped between where he was a tick
+       ago and where he hit, with a different alpha every frame: a dead
+       bird that wobbled. */
+    bird.px = bird.x; bird.py = bird.y; bird.prot = bird.rot;
     bird.vy = Math.min(bird.vy, -2.4);
     G.flash = reduceMotion ? 0 : 1;
     G.shake = reduceMotion ? 0 : 9;
@@ -2566,6 +2587,7 @@
      stamp "been there" into a save or open the map to somewhere unearned. */
   function enterLand(id, quiet) {
     G.mode = 'explore';
+    applyTraits();
     if (profile && !quiet) {
       profile.story.at = id;
       // Seen is seen. story.lands[id] is written only on a pickup, so it
@@ -3744,6 +3766,11 @@
     acc += delta;
     let guard = 0;
     while (acc >= DT && guard++ < 8) { tick(); acc -= DT; }
+    /* Whatever the guard left is dropped, not owed. One 250ms hitch is ~15
+       ticks against a guard of 8, and without this the other seven were
+       repaid one a frame, forever: the sim ran behind the clock and the
+       render's alpha pinned at 1 the whole time. */
+    if (acc > DT) acc = DT;
     render(clamp(acc / DT, 0, 1));
   }
 
@@ -5254,6 +5281,7 @@
                         shieldHits: G.shieldHits, coinMul: G.coinMul, xpMul: G.xpMul,
                         assist: G.runAssist }),
       paused: () => G.paused,
+      backlog: () => acc,
       openSettings, closeSettings, openStats, closeStats, buildStats,
       openMap, closeMap, buildMap, travel, chain, startLand,
       seed: () => G.seed,
