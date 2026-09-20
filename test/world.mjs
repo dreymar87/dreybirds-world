@@ -2182,6 +2182,123 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- the thumb is a stick, and a conversation holds still -----------------
+/* The owner's first play report, both halves. Tapping to go on moved him:
+   every tap was a pointer-down that steered toward the finger until the
+   release decided it had been a tap, and gravity sank him through the whole
+   speech. And the finger sat on whatever he was reaching for, because he
+   flew TO it. Now the thumb is a stick wherever it lands, and speech holds
+   him still. The tap half is driven through REAL pointer events, because no
+   check had ever gone through release() -- and down and up are sent back to
+   back, since that decision is wall-clock against a live frame loop. */
+{
+  const { context, page } = await fresh();
+
+  // Where a game point is on the screen, for the mouse.
+  const at = (x, y) => page.evaluate(([x, y]) => {
+    const d = __dreybird, r = document.getElementById('game').getBoundingClientRect();
+    return { x: r.left + x / d.W * r.width, y: r.top + y / d.H * r.height };
+  }, [x, y]);
+
+  await page.evaluate(() => {
+    const d = __dreybird;
+    d.active().story.flags = ['seen:hold']; d.active().story.lands = {};
+    d.resetWorld(); d.enterLand('glade', true);
+    d.land().t = 200;
+    /* On the ground. The frame loop is live between the mouse events, so
+       he would coast under gravity whatever the press did; the ground clamp
+       holds him, and any movement at all is then the press steering him. */
+    d.bird.x = 144; d.bird.y = d.GY; d.bird.vx = 0; d.bird.vy = 0;
+    for (let i = 0; i < 3; i++) d.tick();
+  });
+  const before = await page.evaluate(() => ({ x: __dreybird.bird.x, y: __dreybird.bird.y }));
+  const far = await at(40, 460);                                  // a corner, nowhere near him
+  await page.mouse.move(far.x, far.y);
+  await page.mouse.down(); await page.mouse.up();                 // back to back: a tap
+  const afterTap = await page.evaluate(() => {
+    const d = __dreybird;
+    for (let i = 0; i < 3; i++) d.tick();
+    return { x: d.bird.x, y: d.bird.y, held: d.paused() };
+  });
+  check('a still press somewhere else does not move him',
+    Math.abs(afterTap.x - before.x) < 1e-9 && Math.abs(afterTap.y - before.y) < 1e-9,
+    JSON.stringify({ before, afterTap }));
+
+  // Beside Thistle, the same press starts the conversation.
+  await page.evaluate(() => {
+    const d = __dreybird, n = d.LANDS.glade.npc;
+    d.bird.x = n.x; d.bird.y = n.y - 20; d.bird.vx = 0; d.bird.vy = 0;
+  });
+  await page.mouse.down(); await page.mouse.up();
+  const talking = await page.evaluate(() => !!__dreybird.land().saying);
+  check('and beside Thistle it starts the conversation', talking);
+
+  const stick = await page.evaluate(() => {
+    const d = __dreybird;
+    const out = {};
+    const settle = (fn, n) => { d.resetWorld(); d.enterLand('glade', true); d.bird.x = 144; d.bird.y = 200; d.bird.vx = 0; d.bird.vy = 0; fn(); for (let i = 0; i < n; i++) d.tick(); return { x: d.bird.x, y: d.bird.y, vx: d.bird.vx, vy: d.bird.vy }; };
+
+    // The same push from two different corners is the same flight.
+    const fromLow = settle(() => d.stickAt(40, 460, 40 + d.STICK_R, 460), 30);
+    const fromHigh = settle(() => d.stickAt(250, 60, 250 + d.STICK_R, 60), 30);
+    out.same = { low: fromLow, high: fromHigh };
+
+    // Held still, he hovers; let go, he sinks.
+    out.hover = settle(() => d.stickAt(40, 460, 40, 460), 60);
+    out.sink = settle(() => d.letGo(), 60);
+
+    // Half a push is half the flight.
+    const half = settle(() => d.push(d.STICK_DEAD + (d.STICK_R - d.STICK_DEAD) / 2, 0), 20);
+    const full = settle(() => d.push(d.STICK_R, 0), 20);
+    out.analog = { half: half.x - 144, full: full.x - 144 };
+
+    // Speech holds him still, stick or no stick.
+    d.resetWorld(); d.enterLand('glade', true);
+    const n = d.LANDS.glade.npc;
+    d.bird.x = n.x; d.bird.y = n.y - 20; d.bird.vx = 0; d.bird.vy = 0;
+    d.tapLand(0, 0);
+    const start = { x: d.bird.x, y: d.bird.y };
+    d.stickAt(40, 460, 40 + d.STICK_R, 460 - d.STICK_R);
+    for (let i = 0; i < 100; i++) d.tick();
+    out.frozen = { saying: !!d.land().saying, dx: d.bird.x - start.x, dy: d.bird.y - start.y };
+    d.letGo();
+    return out;
+  });
+  check('the same push from two different corners is the same flight',
+    Math.abs(stick.same.low.x - stick.same.high.x) < 1e-9 && Math.abs(stick.same.low.y - stick.same.high.y) < 1e-9 &&
+    stick.same.low.x > 144 + 20, JSON.stringify(stick.same));
+  check('held still he hovers, let go he sinks',
+    Math.abs(stick.hover.vy) < 0.05 && Math.abs(stick.hover.y - 200) < 1 && stick.sink.y > 200 + 20,
+    JSON.stringify({ hover: stick.hover, sink: stick.sink }));
+  check('half a push is a slower flight than a full one, not the same one',
+    stick.analog.half > 2 && stick.analog.full > stick.analog.half * 1.5, JSON.stringify(stick.analog));
+  check('a conversation holds him still, even with the stick pushed',
+    stick.frozen.saying && stick.frozen.dx === 0 && stick.frozen.dy === 0, JSON.stringify(stick.frozen));
+
+  // The ring is under the thumb, and not over a conversation.
+  const ring = await page.evaluate(() => {
+    const d = __dreybird;
+    const cv = document.getElementById('game'), g = cv.getContext('2d');
+    const scale = cv.width / d.W;
+    const paint = () => { d.detach(); d.frame(1000); };
+    // Sample the ring's own circumference, well away from the bird, and in
+    // the sky: the ground strip is painted after the HUD and would cover it.
+    const ax = 60, ay = 300, sx = ax + d.STICK_R, sy = ay;
+    const box = () => Array.from(g.getImageData(Math.round((sx - 4) * scale), Math.round((sy - 4) * scale),
+      Math.round(8 * scale), Math.round(8 * scale)).data).join(',');
+    const set = () => { d.active().story.lands = {}; d.resetWorld(); d.enterLand('glade', true); d.land().t = 200; d.bird.x = 144; d.bird.y = 120; };
+    set(); d.letGo(); paint(); const bare = box();
+    set(); d.stickAt(ax, ay, ax + 20, ay); paint(); const held = box();
+    set(); d.bird.x = d.LANDS.glade.npc.x; d.bird.y = d.LANDS.glade.npc.y - 20; d.tapLand(0, 0);
+    d.stickAt(ax, ay, ax + 20, ay); paint(); const talking = box();
+    d.letGo();
+    return { drawn: bare !== held, overSpeech: bare !== talking };
+  });
+  check('the ring is drawn where the thumb landed', ring.drawn);
+  check('and never over a conversation', !ring.overSpeech);
+  await context.close();
+}
+
 // --- content must not cost anyone their progress -------------------------
 /* The trap that made every future land dangerous: entering a land threw the
    saved errand away whenever the number of pickups differed from the number

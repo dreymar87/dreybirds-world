@@ -1419,23 +1419,22 @@
   const ROOST_COINS = 12;       // coins on the line you fly
   const ROOST_COIN = 2;         // each, through earn(), so coinMul applies
   /* ── the lands ────────────────────────────────────────────────────
-     Between the pipe-lands the world stops rushing at you. Hold a thumb
-     down and DreyBird accelerates toward it; let go and he coasts and
-     sinks. Gravity is always on, so releasing always means descending —
-     but the steering is stronger than it, so holding above him lifts and
-     holding below him dives. Nothing in a land can kill him. */
+     Between the pipe-lands the world stops rushing at you. The thumb is a
+     stick: wherever it lands is the stick's centre, and pushing from there
+     is direction and strength. Held still, he hovers; let go and he coasts
+     and sinks. He used to fly TO the thumb, which put the thumb on top of
+     whatever he was trying to reach. Nothing in a land can kill him. */
   const GLIDE_G = 0.13;         // a coast, not the pipe-lands' 0.42 fall
-  const STEER_A = 0.42;         // pull toward the thumb; must exceed GLIDE_G
-  /* How far out the pull starts relaxing. It also sets how far below your
-     thumb he comes to rest, because that is where the eased pull balances
-     gravity: sag = GLIDE_G * STEER_EASE / STEER_A. A little sag is wanted —
-     it keeps him out from under your fingertip — so this is tuned for it
-     rather than against it. At these numbers it is about 14px. */
-  const STEER_EASE = 46;
+  const STEER_A = 0.42;         // the push at full stick
   const GLIDE_MAX = 3.6;        // terminal speed, so it never gets away from you
   const GLIDE_DRAG = 0.94;      // what makes letting go read as gliding
   const TAP_MS = 260;           // shorter than this, and barely moved, is a tap
   const TAP_SLOP = 10;
+  const STICK_R = 40;           // a full push is this far from where the thumb landed
+  /* Inside this the stick is centred and does nothing. Equal to the tap
+     slop on purpose: anything that could still read as a tap has no
+     strength, so a tap never moves him. */
+  const STICK_DEAD = TAP_SLOP;
 
   /* The Glade. One screen, no camera: the whole place is the 288x512 the
      game already draws in, which is what lets a land exist at all without
@@ -2358,28 +2357,32 @@
     const E = G.explore;
     E.t++;
 
-    // Arrows and WASD are a thumb held a little way from the bird, so a
-    // keyboard player can reach the doors at all. Recomputed every tick,
-    // so the target moves with him.
+    /* A conversation holds him still. Every "tap to go on" used to be a
+       pointer-down that steered toward the finger until the release decided
+       it had been a tap, and gravity sank him through the whole speech. */
+    if (E.saying) {
+      bird.vx = 0; bird.vy = 0;
+      bird.rot += (0 - bird.rot) * 0.16;
+      return;
+    }
+
+    // Arrows and WASD are a stick pushed all the way, through the same
+    // path as a thumb. Recomputed every tick.
     if (keys.size) {
       let kx = 0, ky = 0;
       for (const k of keys) { const v = KEYMAP[k]; if (v) { kx += v[0]; ky += v[1]; } }
-      if (kx || ky) { hold.on = true; hold.x = bird.x + kx * 70; hold.y = bird.y + ky * 70; }
+      if (kx || ky) {
+        hold.on = true; hold.fromKeys = true;
+        hold.fromX = 0; hold.fromY = 0; hold.x = kx * STICK_R; hold.y = ky * STICK_R;
+      }
     }
 
-    bird.vy += GLIDE_G;
+    // Held, he hovers: gravity is what letting go means.
+    if (!hold.on) bird.vy += GLIDE_G;
     if (hold.on) {
-      const dx = hold.x - bird.x, dy = hold.y - bird.y;
-      const d = Math.hypot(dx, dy);
-      if (d > 1) {
-        /* Eased off as he arrives. A constant pull toward the thumb never
-           stops pulling, so he sails past the point and comes back, and
-           back again — which reads as jitter precisely when you are trying
-           to hold still beside someone to talk to them. */
-        const ease = Math.min(1, d / STEER_EASE);
-        bird.vx += (dx / d) * STEER_A * ease;
-        bird.vy += (dy / d) * STEER_A * ease;
-      }
+      const st = stick();
+      bird.vx += st.dx * STEER_A * st.strength;
+      bird.vy += st.dy * STEER_A * st.strength;
       if (bird.wing === 0 && G.ticks % 9 === 0) bird.wing = 9;
       /* A second and a half of holding is the whole steering lesson. The
          hint used to be an else-if behind TAP TO TALK, so in the glade it
@@ -3400,6 +3403,20 @@
 
     // Its own line, not an else-if behind TAP TO TALK: standing beside
     // Thistle must not hide the one steering lesson there is.
+    /* The stick, where the thumb is: a ring where it landed and a knob
+       where it has pushed to, so the thing under the thumb is the thing the
+       thumb is doing. Not for keys, and never over a conversation. */
+    if (hold.on && !hold.fromKeys && !E.saying) {
+      const st = stick();
+      const reach = Math.min(STICK_R, Math.hypot(hold.x - hold.fromX, hold.y - hold.fromY));
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(hold.fromX, hold.fromY, STICK_R, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,.85)';
+      ctx.beginPath(); ctx.arc(hold.fromX + st.dx * reach, hold.fromY + st.dy * reach, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+
     if (!E.saying && profile && profile.story.flags.indexOf('seen:hold') < 0) {
       textOut(ctx, 'HOLD TO FLY', W / 2, 94, 7, 'rgba(255,255,255,.85)', '#20160a');
     }
@@ -3991,7 +4008,16 @@
      happened; the lands need to know where it is being held, and for how
      long, so that a short still press can mean "talk to him" while a long
      one means "fly this way". Free mode is untouched: it still just taps. */
-  const hold = { on: false, x: 0, y: 0, at: 0, fromX: 0, fromY: 0, moved: 0 };
+  const hold = { on: false, x: 0, y: 0, at: 0, fromX: 0, fromY: 0, moved: 0, fromKeys: false };
+
+  // What the stick says: a unit direction and a strength in [0, 1], from
+  // how far the thumb has pushed from where it landed.
+  function stick() {
+    const ox = hold.x - hold.fromX, oy = hold.y - hold.fromY;
+    const d = Math.hypot(ox, oy);
+    const strength = clamp((d - STICK_DEAD) / (STICK_R - STICK_DEAD), 0, 1);
+    return { dx: d > 0 ? ox / d : 0, dy: d > 0 ? oy / d : 0, strength: strength };
+  }
 
   function toGame(e) {
     const r = cv.getBoundingClientRect();
@@ -4003,7 +4029,7 @@
     e.preventDefault();
     const pt = toGame(e);
     hold.on = true; hold.x = pt.x; hold.y = pt.y;
-    hold.fromX = pt.x; hold.fromY = pt.y; hold.moved = 0;
+    hold.fromX = pt.x; hold.fromY = pt.y; hold.moved = 0; hold.fromKeys = false;
     hold.at = performance.now();
     audio.wake();
     if (music.on && !audio.muted) music.start();
@@ -5375,7 +5401,7 @@
       trailParticles: () => trail,
       PATTERNS, GAP_FLOOR, CALM_PIPES, HAZARD_START,
       PORTAL_START, PORTAL_H, RING_R, PULL_RANGE, ROOST_TICKS, ROOST_COINS, ROOST_COIN,
-      GLIDE_G, STEER_A, GLIDE_MAX, STEER_EASE,
+      GLIDE_G, STEER_A, GLIDE_MAX, STICK_R, STICK_DEAD,
       enterLand, leaveLand,
       land: () => G.explore,
       // Drives the thumb without a real pointer, for the checks that measure
@@ -5385,7 +5411,11 @@
       stage: () => G.stage,
       speechWidth: () => W - 28 - 16,
       tapLand,
-      holdAt: (x, y) => { hold.on = true; hold.x = x; hold.y = y; },
+      // A thumb that landed on the bird and pushed toward (x, y): what every
+      // older check meant by "hold there". push() is the stick itself.
+      holdAt: (x, y) => { hold.on = true; hold.fromKeys = false; hold.fromX = bird.x; hold.fromY = bird.y; hold.x = x; hold.y = y; },
+      push: (dx, dy) => { hold.on = true; hold.fromKeys = false; hold.fromX = 0; hold.fromY = 0; hold.x = dx; hold.y = dy; },
+      stickAt: (ax, ay, x, y) => { hold.on = true; hold.fromKeys = false; hold.fromX = ax; hold.fromY = ay; hold.x = x; hold.y = y; },
       letGo: () => { hold.on = false; },
       roostCoins: () => roostCoins,
       // Without a way to place one, testing the door means flying 15+ pipes

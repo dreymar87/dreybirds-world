@@ -157,6 +157,21 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   the bird it finds in the flock and flyable at a best of nothing -- the M1 fix proved on real
   content for the first time. Three mutants, all caught. 393 checks. This commit.
 
+- The first play report, both halves. Tapping to go on moved him: `tickExplore` never looked at
+  `E.saying`, so gravity sank him through the whole speech and every tap was a pointer-down that
+  steered toward the finger until the release decided it had been a tap. A conversation holds him
+  still now. And the finger sat on whatever he was reaching for, because he flew TO it. The thumb
+  is a floating stick: wherever it lands is the centre, pushing from there is direction and
+  strength, held still he hovers, let go he coasts, and a ring and knob are drawn under the thumb
+  so the thing under it is the thing it is doing. The dead zone equals the tap slop, so anything
+  that could still read as a tap has no strength -- which is what makes a tap never move him. The
+  keyboard is a stick pushed all the way, through the same path. Every one of the fifteen older
+  steering checks kept green with `holdAt` re-read as "push toward that point", which is what each
+  of them was asserting anyway. Eight new checks, two through real pointer events -- the first to
+  go through `release()` at all, sent down and up back to back because that decision is wall-clock.
+  Seven mutants, all caught. The owner's rubric said P2; it was the first thing a phone found and
+  the first thing fixed. 401 checks. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

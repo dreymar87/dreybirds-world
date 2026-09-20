@@ -44,6 +44,7 @@ const plan = await page.evaluate(() => {
     const land = d.LANDS[id];
     out.push({ kind: 'land', id, state: 'arriving' });
     if (land.pickups) out.push({ kind: 'land', id, state: 'mid errand' });
+    if (id === Object.keys(d.LANDS)[0]) out.push({ kind: 'land', id, state: 'stick held' });
     if (land.npc) out.push({ kind: 'land', id, state: 'talking' });
     if (land.gate) out.push({ kind: 'land', id, state: 'way open' });
   }
@@ -77,6 +78,7 @@ for (const shot of plan) {
       d.enterLand(shot.id, true);
       const E = d.land();
       if (shot.state === 'mid errand') { E.got = E.got.map((_, i) => i === 0); E.t = 200; }
+      if (shot.state === 'stick held') { E.t = 200; d.stickAt(60, 330, 84, 308); }
       if (shot.state === 'way open') { E.opened = true; E.t = 200; E.got = E.got.map(() => true); }
       if (shot.state === 'talking') {
         E.t = 200;
@@ -84,6 +86,7 @@ for (const shot of plan) {
         d.tapLand(0, 0);
       }
       settle();
+      if (shot.state === 'stick held') d.letGo();
       return shot.id + ' · ' + shot.state;
     }
 

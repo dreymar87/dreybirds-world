@@ -6,8 +6,9 @@ bringing them home.**
 **Play it: https://dreymar87.github.io/dreybirds-world**
 
 An adventure built on the bones of a Flappy Bird tribute. Between the pipe-lands
-there are quiet places where the world stops rushing at you: hold your thumb and
-DreyBird glides toward it, coasting when you let go. Nothing in a land can hurt him.
+there are quiet places where the world stops rushing at you: hold a thumb anywhere
+and push, and DreyBird flies that way; hold still and he hovers, let go and he
+coasts down. Nothing in a land can hurt him.
 Tap the map button to see where you are and where you have been.
 
 ## The world so far
@@ -359,12 +360,12 @@ npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run test:portal          # 19  portals, the pull, the Roost
 npm run test:stats           # 20  the stats screen and its chart
-npm run test:world           # 148  the lands, the flight, the passages
+npm run test:world           # 156  the lands, the flight, the passages
 npm run icons                #     regenerate the app icons and the share card
 npm run shots                #     one picture of every screen, into bench/
 ```
 
-393 checks in total.
+401 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
