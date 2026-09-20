@@ -1064,9 +1064,11 @@
      including the downside ones. */
   function earn(n) {
     if (!profile || n <= 0) return;
-    /* Levels pay nothing. A level restarts the instant you die, so paying per
-       pipe would make the first three pipes of the easiest one a coin press
-       -- and "retrying costs nothing" has to be true in both directions. */
+    /* Levels pay nothing per pipe. A level restarts the instant you die, so
+       paying per pipe would make the first three pipes of the easiest one a
+       coin press -- and "retrying costs nothing" has to be true in both
+       directions. What a level and an errand DO pay is a fixed sum, once,
+       through pay() below: story money, not flight money. */
     if (G.mode === 'stage') return;
     G.coinFrac += n * G.coinMul;
     // Twenty pipes at 0.9 accumulates to 17.999999999999996, which floors
@@ -2411,6 +2413,7 @@
         keepLand();
         audio.score();
         puff(sd.x, sd.y, PICKUPS[pk.kind].puff, 8);
+        finishErrand(E);
         if (opensOn(LANDS[E.id]) === 'errand' && gotAll(E) && !E.opened) openWay(E);
       }
     });
@@ -2435,6 +2438,32 @@
     keepLand();
     G.flash = reduceMotion ? 0 : 0.6;
     audio.power();
+  }
+
+  /* Story money. A fixed sum for a thing done once -- an errand finished,
+     a passage cleared for the first time -- as opposed to earn(), which is
+     flight income: multiplied by the bird, counted into the run, refused in
+     a level. Neither multiplier nor mode applies here. */
+  function pay(n) {
+    if (!profile || n <= 0) return;
+    profile.coins += n;
+    saveProfile();
+  }
+  const ERRAND_COIN = 12;
+
+  /* Finishing an errand is one event, paid once, however many times the
+     land is entered or the errand's own record is rebuilt. The flag lives
+     in story.flags so it survives a reload and an import. It deliberately
+     does NOT catch up a save that finished an errand before this existed:
+     that would be paying on load from a record, the pattern retired in
+     favour of paying for play as it happens. */
+  function finishErrand(E) {
+    if (!profile || !gotAll(E)) return;
+    const flag = 'errand:' + E.id;
+    if (profile.story.flags.indexOf(flag) >= 0) return;
+    profile.story.flags.push(flag);
+    E.doneAt = G.ticks;
+    pay(ERRAND_COIN);
   }
 
   const gotAll = E => {
@@ -2558,6 +2587,10 @@
       }
       if (profile.story.flags.indexOf('cleared:' + st.id) < 0) {
         profile.story.flags.push('cleared:' + st.id);
+        // A first clear pays the passage's length, once. Flying it again is
+        // its own reward, and a fixed pipe count must not be a coin press.
+        S.bounty = st.pipes;
+        pay(st.pipes);
       }
       saveProfile();
     }
@@ -2611,7 +2644,7 @@
                   // A plain doorway is open when he gets there; anything else
                   // is open only if it was opened.
                   opened: opensOn(LANDS[id]) === 'always' || (kept ? kept.opened : false),
-                  saying: null, line: 0, missed: -999, held: 0 };
+                  saying: null, line: 0, missed: -999, held: 0, doneAt: -999 };
     G.state = PLAYING;
     bird.x = 70; bird.px = 70;
     bird.y = 240; bird.py = 240;
@@ -3313,6 +3346,16 @@
       if (pk.ordered && G.ticks - E.missed < 50) {
         textOut(ctx, 'IN ORDER', W / 2, 78, 7, '#ffb4a2', '#20160a');
       }
+      /* Finishing used to change nothing on screen until he found Thistle.
+         The coin is shown briefly; who to tell is shown for as long as it
+         is true, since the record is rebuilt on every arrival and a player
+         who finished and left must still be told on the way back. Same row
+         as IN ORDER, which cannot coincide with a finished errand. */
+      const paidJustNow = G.ticks - E.doneAt < 120;
+      const tell = gotAll(E) && !E.opened && opensOn(land) === 'thanks' && land.npc
+        ? 'GO TELL ' + NPCS[land.npc.who].name.toUpperCase() : '';
+      const line = [paidJustNow ? '+' + ERRAND_COIN + ' COINS' : '', tell].filter(Boolean).join('  ·  ');
+      if (line) textOut(ctx, line, W / 2, 78, 7, '#ffe07a', '#20160a');
     }
 
     // Its own line, not an else-if behind TAP TO TALK: standing beside
@@ -3373,7 +3416,8 @@
     ctx.restore();
 
     textOut(ctx, 'YOU MADE IT', W / 2, 124, 12, '#ffe07a', '#20160a');
-    textOut(ctx, (st ? st.name : '') + '  ·  ' + S.target + ' PIPES', W / 2, 150, 6,
+    textOut(ctx, (st ? st.name : '') + '  ·  ' + S.target + ' PIPES' +
+      (S.bounty ? '  ·  +' + S.bounty + ' COINS' : ''), W / 2, 150, 6,
       'rgba(255,255,255,.75)', '#20160a');
 
     if (!S.done) return;
@@ -4679,6 +4723,9 @@
     tile(grid, st.roosts, st.roosts === 1 ? 'ROOST' : 'ROOSTS');
     tile(grid, runs.length ? (runs.reduce((a, b) => a + b, 0) / runs.length).toFixed(1) : '—', 'AVG RUN');
     tile(grid, st.games ? (st.pipes / st.games).toFixed(1) : '—', 'PIPES/RUN');
+    // The one shared answer to "who is home", so this cannot disagree with
+    // the map or the end of the world. Wide: a seventh tile in two columns.
+    tile(grid, SKINS.filter(home).length + ' OF ' + SKINS.length, 'FLOCK', true);
     statsBody.appendChild(grid);
 
     const medals = document.createElement('p');
@@ -5309,7 +5356,7 @@
       run: () => ({ pipeIndex: G.pipeIndex, pattern: G.pattern && G.pattern.id,
                     gust: G.gust && { at: G.gust.at, until: G.gust.until, force: G.gust.force },
                     fog: G.fog && { until: G.fog.until, y: G.fog.y } }),
-      COIN_PIPE, COIN_POWER, MEDAL_BONUS,
+      COIN_PIPE, COIN_POWER, MEDAL_BONUS, ERRAND_COIN,
       FEATHERS, TRAIT_DIRS, SLOT_LEVELS,
       xpForLevel, levelFor, levelProgress, runXp, slotsAt,
       traitsNow, equippedFeathers,

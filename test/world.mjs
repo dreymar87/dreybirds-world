@@ -2052,6 +2052,91 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- story money -----------------------------------------------------------
+/* Coins reached a story-only player nowhere: errands paid nothing, and
+   levels pay nothing per pipe on purpose. Now an errand pays a fixed sum
+   once, and a passage pays its length the first time it is cleared. Once
+   is the whole point, so every route to a second payment is tried. */
+{
+  const { context, page } = await fresh();
+  const money = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    const out = {};
+    const seen = () => { const s = new Set(), o = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (x) { s.add(String(x)); return o.apply(this, arguments); };
+      d.detach(); d.frame(1000); CanvasRenderingContext2D.prototype.fillText = o; return [...s].join(' | '); };
+    const gather = id => {
+      d.resetWorld(); d.enterLand(id, true);
+      for (const sd of d.LANDS[id].pickups.at) { d.bird.x = sd.x; d.bird.y = sd.y; d.bird.vx = 0; d.bird.vy = 0; d.tick(); }
+    };
+
+    p.coins = 0; p.story.flags = []; p.story.lands = {};
+    gather('glade');
+    out.first = { coins: p.coins, hud: seen() };
+    gather('glade');                                 // re-entered: the seeds are already got
+    out.again = p.coins;
+    p.story.lands.glade.got = [false, false, false];  // the record rebuilt, the flag not
+    gather('glade');
+    out.rebuilt = p.coins;
+
+    // The flag travels with the save: an import brings it back, and pays nothing more.
+    const backup = JSON.parse(JSON.stringify(d.exportSave()));
+    p.story.flags = []; p.story.lands = {};
+    d.importSave(backup);
+    gather('glade');
+    out.imported = { coins: p.coins, flagged: d.active().story.flags.indexOf('errand:glade') >= 0 };
+
+    // The coin shown once, and who to tell shown for as long as it is true.
+    d.resetWorld(); d.enterLand('glade', true);
+    for (let i = 0; i < 200; i++) d.tick();
+    out.later = seen();
+
+    // A passage pays its length the first time, and nothing the second.
+    const win = () => {
+      d.resetWorld(); d.enterLand('glade', true); d.enterStage(d.STAGES.reeds); d.press();
+      let guard = 0;
+      while (!d.stage().won && guard++ < 20000) { d.G.state = d.states.PLAYING; if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick(); }
+      for (let i = 0; i < 220; i++) d.tick();
+      return { coins: p.coins, panel: seen() };
+    };
+    p.coins = 0; p.story.flags = p.story.flags.filter(f => f !== 'cleared:reeds');
+    out.clear1 = win();
+    out.clear2 = win();
+    out.pipes = d.STAGES.reeds.pipes;
+    return out;
+  });
+  const E = 12;
+  check('finishing an errand pays ' + E + ' coins, and says so on the screen',
+    money.first.coins === E && new RegExp('\\+' + E + ' COINS').test(money.first.hud), JSON.stringify(money.first).slice(0, 200));
+  check('and not again on re-entry, nor when its record is rebuilt',
+    money.again === E && money.rebuilt === E, JSON.stringify({ again: money.again, rebuilt: money.rebuilt }));
+  check('the flag comes back with an imported save, and still pays nothing more',
+    money.imported.coins === E && money.imported.flagged, JSON.stringify(money.imported));
+  check('who to tell stays on screen after the coin line has gone',
+    /GO TELL THISTLE/.test(money.later) && !/\+12 COINS/.test(money.later), money.later.slice(0, 160));
+  check('the first clear of a passage pays its length, on the arrival card',
+    money.clear1.coins === money.pipes && new RegExp('\\+' + money.pipes + ' COINS').test(money.clear1.panel),
+    JSON.stringify({ coins: money.clear1.coins, pipes: money.pipes, panel: money.clear1.panel.slice(0, 120) }));
+  check('and the second clear pays nothing',
+    money.clear2.coins === money.pipes && !/COINS/.test(money.clear2.panel),
+    JSON.stringify({ coins: money.clear2.coins, panel: money.clear2.panel.slice(0, 120) }));
+
+  // The stats sheet gives the same answer the map does.
+  const tile = await page.evaluate(() => {
+    const d = __dreybird;
+    d.active().story.flock = ['sky'];
+    d.openStats();
+    const spans = [...document.querySelectorAll('#stats .tile span')];
+    const f = spans.find(sp => sp.textContent === 'FLOCK');
+    const v = f && f.parentElement.querySelector('b');
+    d.closeStats();
+    return v ? v.textContent : null;
+  });
+  check('the stats sheet counts the flock, from the same answer as the map',
+    tile === '2 OF 12', String(tile));
+  await context.close();
+}
+
 // --- content must not cost anyone their progress -------------------------
 /* The trap that made every future land dangerous: entering a land threw the
    saved errand away whenever the number of pickups differed from the number

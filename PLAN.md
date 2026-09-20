@@ -133,6 +133,18 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   one came back green because the check derived its expected value from the number under test --
   rewritten to measure the classic box from a real run first. 384 checks. This commit.
 
+- M4 push 2, story money. `pay(n)` is a fixed sum for a thing done once -- an errand finished,
+  a passage cleared for the first time -- as against `earn()`, which is flight income: multiplied
+  by the bird, counted into the run, refused in a level. An errand pays 12 once, guarded by an
+  `errand:<land>` flag in `story.flags` so it survives a reload and an import and is not paid again
+  when the errand's own record is rebuilt; no catch-up for a save that finished one before this
+  existed, decided and documented. The screen says `+12 COINS` for two seconds and `GO TELL
+  THISTLE` for as long as it is true, which fixes finishing the seeds changing nothing on screen
+  until he was found. A first clear pays the passage's length, on the arrival card; the second pays
+  nothing. The stats sheet has a FLOCK tile from the same `home` answer as the map. Seven checks,
+  every route to a second payment tried: re-entry, a rebuilt record, an import. Six mutants, all
+  caught. 391 checks. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**
