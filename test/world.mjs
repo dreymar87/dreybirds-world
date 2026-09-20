@@ -2137,6 +2137,51 @@ for (const blockFont of [false, true]) {
   await context.close();
 }
 
+// --- every passage can be flown, from its land to the next ----------------
+/* Walks the running order instead of naming any passage, so the one added
+   after this brings its own check. For each passage: stand in the land
+   before it with the door open, fly east through the door, win, tap on,
+   and require arrival in the land after it, the bird it finds in the flock,
+   and that bird flyable at a best of nothing -- the M1 fix, proved on each
+   piece of real content. */
+{
+  const { context, page } = await fresh();
+  const walked = await page.evaluate(() => {
+    const d = __dreybird, p = d.active();
+    const out = [];
+    for (const id of d.chain()) {
+      const st = d.STAGES[id];
+      if (!st) continue;
+      p.best = 0; p.owned = []; p.story.flock = []; p.story.flags = []; p.story.lands = {};
+      d.equip('bird', 'classic');
+      d.resetWorld(); d.enterLand(st.from, true);
+      d.land().opened = true;
+      d.bird.x = d.W; d.bird.vx = 4; d.tick();
+      const entered = d.G.mode === 'stage' && d.stage() && d.stage().id === id;
+      d.press();
+      let guard = 0;
+      while (d.G.mode === 'stage' && !d.stage().won && guard++ < 40000) {
+        d.G.state = d.states.PLAYING;
+        if (d.pipes[0]) d.bird.y = d.pipes[0].gap; d.bird.vy = 0; d.tick();
+      }
+      const won = !!(d.stage() && d.stage().won);
+      for (let i = 0; i < 220; i++) d.tick();
+      d.leaveStage();
+      const at = d.land() && d.land().id;
+      const found = st.finds ? p.story.flock.indexOf(st.finds) >= 0 : true;
+      if (st.finds) d.equip('bird', st.finds);
+      out.push({ id, entered, won, at, to: st.to, found, flies: st.finds ? d.G.skin.id === st.finds : true, best: p.best });
+    }
+    return out;
+  });
+  const bad = walked.filter(r => !(r.entered && r.won && r.at === r.to && r.found && r.flies));
+  check('every passage in the running order is entered through its door, won, and arrives where it says',
+    walked.length >= 3 && bad.length === 0, bad.length ? JSON.stringify(bad) : walked.map(r => r.id + '→' + r.at).join(', '));
+  check('and the bird each one finds is flyable at a best of nothing',
+    walked.every(r => r.found && r.flies && r.best === 0), JSON.stringify(walked.map(r => [r.id, r.found, r.flies])));
+  await context.close();
+}
+
 // --- content must not cost anyone their progress -------------------------
 /* The trap that made every future land dangerous: entering a land threw the
    saved errand away whenever the number of pickups differed from the number

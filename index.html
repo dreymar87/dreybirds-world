@@ -1466,11 +1466,22 @@
                       city: '#b08a63', dirt: '#7b5c3a', grass: '#8fa457',
                       sun: '#fff0bd', star: 0 } },
 
-    kiln:  { id: 'kiln', name: 'THE KILN', ends: true, west: 'bank',
-             perches: [{ who: 'ember', x: 214, y: 356 }],
+    kiln:  { id: 'kiln', name: 'THE KILN', east: 'ashway', west: 'bank',
+             // Ember is the one to talk to here, not a perch: a flockmate
+             // who was found in the Narrows and has something to ask.
+             npc: { who: 'ember', x: 214, y: 400, r: 44 },
+             pickups: { kind: 'coal', ordered: false,
+                        at: [{ x: 62, y: 372 }, { x: 150, y: 252 }, { x: 236, y: 150 }] },
+             gate: { opens: 'thanks' },
              phase: { sky0: '#d9704a', sky1: '#ffc98a', cloud: '#f6b48c',
                       city: '#7a3f34', dirt: '#4e2c22', grass: '#a35a36',
-                      sun: '#ffe3a8', star: 0.2 } }
+                      sun: '#ffe3a8', star: 0.2 } },
+
+    hollow: { id: 'hollow', name: 'THE HOLLOW', ends: true, west: 'kiln',
+              perches: [{ who: 'ghost', x: 214, y: 356 }],
+              phase: { sky0: '#9aa8b8', sky1: '#dfe6ea', cloud: '#f2f5f7',
+                       city: '#6d7b78', dirt: '#4f5a52', grass: '#7c9a7e',
+                       sun: '#e8eef0', star: 0 } }
   };
 
   /* Who lives in the lands. A row is a voice -- first asks, again reminds,
@@ -1533,6 +1544,19 @@
       thanks: ['The heron dips its head, which is as close to approval as a heron gets.',
                'Go on then. The narrows will not wait.'],
       after:  ['East, and mind the middle stretch.']
+    },
+    ember: {
+      name: 'Ember',
+      // A flockmate. The bird's own grid in Ember's own colours: no sprite.
+      art: BIRD_ART,
+      c: SKINS.find(b => b.id === 'ember').p,
+      first: ['Ember hops down from the kiln mouth, ash on every feather.',
+              'Good. You came. The fire went out the night the flock scattered.',
+              'Three coals still glow somewhere in the ash. Bring them and I will light the way east.'],
+      again: ['Three coals. Warm ones. They glow if you look low.'],
+      thanks: ['Ember tucks them into the kiln and breathes on them until they catch.',
+               'There. The ashway is lit. Ghost went that way. Pale, and quiet about it.'],
+      after:  ['East, along the ashway. Keep low. The smoke hangs high.']
     }
   };
 
@@ -1544,7 +1568,8 @@
      it bursts into when taken. A new kind of thing to find is a row. */
   const PICKUPS = {
     seed: { label: 'SEEDS', puff: '#ffe07a', draw: (sd, next, t) => drawSeed(sd, t) },
-    ring: { label: 'RINGS', puff: '#cdefff', draw: drawRing }
+    ring: { label: 'RINGS', puff: '#cdefff', draw: drawRing },
+    coal: { label: 'COALS', puff: '#ffb347', draw: (sd, next, t) => drawCoal(sd, t) }
   };
 
   /* What opens a land's east door. Until now a door only ever came apart at
@@ -1574,7 +1599,9 @@
                // Full ramp. At 0.55 the seed produced a gust and no movers at
                // all across 22 pipes: nominally hazardous, actually not.
                gap: 108, hazards: 1, bg: 2, from: 'bank', to: 'kiln',
-               finds: 'ember' }
+               finds: 'ember' },
+    ashway: { id: 'ashway', name: 'THE ASHWAY', seed: 0xa5b7e1, pipes: 18,
+              gap: 114, hazards: 1, bg: 1, from: 'kiln', to: 'hollow', finds: 'ghost' }
   };
   const ARRIVE_GLIDE = 80;      // ticks of flying on before the panel
 
@@ -3220,6 +3247,19 @@
     ctx.beginPath(); ctx.ellipse(sd.x, sd.y + bob, SEED_R - 3, SEED_R, 0.4, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#ffe9a8';
     ctx.fillRect(Math.round(sd.x - 1), Math.round(sd.y + bob - 3), 2, 4);
+    ctx.restore();
+  }
+
+  // A coal, still warm: a dark lump with a breathing glow.
+  function drawCoal(sd, t) {
+    const glow = reduceMotion ? 0.5 : 0.5 + Math.sin(t / 9 + sd.x) * 0.25;
+    ctx.save();
+    ctx.globalAlpha = glow * 0.6; ctx.fillStyle = '#ff7a3c';
+    ctx.beginPath(); ctx.arc(sd.x, sd.y, SEED_R + 5, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1; ctx.fillStyle = '#3a2420';
+    ctx.fillRect(Math.round(sd.x - 5), Math.round(sd.y - 3), 10, 7);
+    ctx.fillStyle = '#ffb347';
+    ctx.fillRect(Math.round(sd.x - 2), Math.round(sd.y - 1), 4, 3);
     ctx.restore();
   }
 

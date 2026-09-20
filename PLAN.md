@@ -145,6 +145,18 @@ Live main is d2c8b02, CI run #10 green: 3 lands, 2 passages, 2 of 12 birds home.
   every route to a second payment tried: re-entry, a rebuilt record, an import. Six mutants, all
   caught. 391 checks. This commit.
 
+- M4 push 3, Ember at the Kiln, the Ashway, the Hollow. The Kiln stops being the end: Ember --
+  a flockmate found in the Narrows -- is the one to talk to there, drawn with the bird's own grid
+  in Ember's own colours, asking for three coals; the door opens on the thanks onto the Ashway,
+  18 pipes, which finds Ghost in the Hollow, misty and the end of the world for now. The seams
+  held: the Kiln NPC, the passage and the land are about 31 lines of rows, against the gate of
+  60. The one piece of code is a coal -- a new kind of thing to find, which is what the PICKUPS
+  seam is for -- at 14 lines. Everything else came for free: the map row says 'errand waiting',
+  the flock count says three, the contact sheet grew seven tiles by itself. One table-driven
+  check walks every passage in the running order: through its door, won, arrived where it says,
+  the bird it finds in the flock and flyable at a best of nothing -- the M1 fix proved on real
+  content for the first time. Three mutants, all caught. 393 checks. This commit.
+
 ## 3. How we decide
 
 **Priority rubric.**

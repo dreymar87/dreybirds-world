@@ -13,16 +13,16 @@ Tap the map button to see where you are and where you have been.
 ## The world so far
 
 ```
-THE GLADE  --(the Reeds)-->  THE FAR BANK  --(the Narrows)-->  THE KILN
-Thistle, a mouse             Stilt, a heron                     the world ends here, for now
-three seeds to fetch         three rings, in order              Ember is found
-                             Bluebird is found
+THE GLADE  --(the Reeds)-->  THE FAR BANK  --(the Narrows)-->  THE KILN  --(the Ashway)-->  THE HOLLOW
+Thistle, a mouse             Stilt, a heron                     Ember, one of your own         the world ends here, for now
+three seeds to fetch         three rings, in order              three coals to find            Ghost is found
+                             Bluebird is found                  Ember is found
 ```
 
 Each land has someone in it with an errand. Finish it and they open the way east
 into a **pipe-land**, which is the classic game with a finish line: fly its length
 and you arrive. Dying in one costs the attempt and nothing else. At the far end of
-every passage is a place, and in it one of your flock. **Two of twelve are home.**
+every passage is a place, and in it one of your flock. **Three of twelve are home.**
 
 A pipe-land is the same flight every attempt, because the pipes come from a seed,
 so a retry is learning a level rather than rerolling one. West takes you back
@@ -359,12 +359,12 @@ npm run test:crash           #  9  crash survival
 npm run test:polish          # 10  juice, music, tutorial
 npm run test:portal          # 19  portals, the pull, the Roost
 npm run test:stats           # 20  the stats screen and its chart
-npm run test:world           # 146  the lands, the flight, the passages
+npm run test:world           # 148  the lands, the flight, the passages
 npm run icons                #     regenerate the app icons and the share card
 npm run shots                #     one picture of every screen, into bench/
 ```
 
-391 checks in total.
+393 checks in total.
 
 `smoke.mjs` drops screenshots of each game state into `test/shots/`.
 `pwa.mjs` serves the repo on localhost, waits for the service worker to take
